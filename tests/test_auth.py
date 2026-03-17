@@ -195,6 +195,39 @@ class TestTokenIntrospector:
         assert "api.ocm" in user.scopes
 
     @pytest.mark.asyncio
+    async def test_empty_scope_config_bypasses_scope_check(self):
+        """Test that empty agent_required_scope bypasses scope checks."""
+        empty_scope_settings = Settings(
+            red_hat_sso_issuer="https://sso.redhat.com/auth/realms/redhat-external",
+            red_hat_sso_client_id="test-client-id",
+            red_hat_sso_client_secret="test-client-secret",
+            agent_required_scope="",
+            skip_jwt_validation=False,
+            debug=True,
+        )
+        intr = TokenIntrospector(settings=empty_scope_settings)
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "active": True,
+            "sub": "user-123",
+            "scope": "openid profile",
+            "exp": int(time.time()) + 3600,
+        }
+
+        with patch("httpx.AsyncClient") as mock_client:
+            mock_instance = AsyncMock()
+            mock_instance.post.return_value = mock_response
+            mock_instance.__aenter__.return_value = mock_instance
+            mock_instance.__aexit__.return_value = None
+            mock_client.return_value = mock_instance
+
+            user = await intr.validate_token("some-token")
+            assert isinstance(user, AuthenticatedUser)
+            assert user.user_id == "user-123"
+
+    @pytest.mark.asyncio
     async def test_azp_preferred_over_client_id(self, introspector):
         """Test that azp is used over client_id when both are present."""
         mock_response = MagicMock()
