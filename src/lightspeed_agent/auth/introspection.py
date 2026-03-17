@@ -158,7 +158,7 @@ class TokenIntrospector:
             email="dev@example.com",
             name="Development User",
             org_id="dev-org",
-            scopes=["openid", "profile", "email", "api.console", "api.ocm"],
+            scopes=["openid", "profile", "email"] + self._settings.required_scopes_list,
             token_exp=datetime.now(UTC).replace(year=2099),
             metadata={"order_id": "dev-order"},
         )
