@@ -139,7 +139,7 @@ def build_agent_card() -> AgentCard:
             "redhat_sso": SecurityScheme(root=oauth_scheme),
         },
         security=[
-            {"redhat_sso": ["openid", "api.console", "api.ocm"]},
+            {"redhat_sso": ["openid"] + settings.required_scopes_list},
         ],
         default_input_modes=["text"],
         default_output_modes=["text"],
