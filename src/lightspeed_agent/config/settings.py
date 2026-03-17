@@ -214,6 +214,7 @@ class Settings(BaseSettings):
     )
 
     # Agent required scopes for token introspection (comma-separated)
+    # Singular name kept for backward compatibility; value is comma-separated.
     agent_required_scope: str = Field(
         default="api.console,api.ocm",
         description=(
