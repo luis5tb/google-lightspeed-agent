@@ -32,7 +32,7 @@
 #   │  (Cloud Run #1)         │     │    (Cloud Run #2)       │
 #   │                         │     │                         │
 #   │  - POST /dcr            │     │  - POST / (A2A)         │
-#   │  - Pub/Sub push         │     │  - /.well-known/agent   │
+#   │  - POST /pubsub (OIDC)  │     │  - /.well-known/agent   │
 #   │  - Account approval     │     │  - OAuth flow           │
 #   │  - GMA SSO API          │     │  - MCP sidecar          │
 #   └─────────────────────────┘     └─────────────────────────┘
@@ -350,6 +350,7 @@ configure_pubsub_push() {
         gcloud pubsub subscriptions update "$PUBSUB_SUBSCRIPTION" \
             --push-endpoint="$push_endpoint" \
             --push-auth-service-account="$PUBSUB_INVOKER_SA" \
+            --push-auth-token-audience="$push_endpoint" \
             --ack-deadline=60 \
             --project="$PROJECT_ID" \
             --quiet
@@ -360,6 +361,7 @@ configure_pubsub_push() {
             --topic="$PUBSUB_TOPIC" \
             --push-endpoint="$push_endpoint" \
             --push-auth-service-account="$PUBSUB_INVOKER_SA" \
+            --push-auth-token-audience="$push_endpoint" \
             --ack-deadline=60 \
             --project="$PROJECT_ID" \
             $impersonate_flag

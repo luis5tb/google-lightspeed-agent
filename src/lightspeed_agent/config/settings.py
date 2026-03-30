@@ -190,6 +190,16 @@ class Settings(BaseSettings):
         ),
     )
 
+    # Google Cloud Pub/Sub OIDC verification
+    pubsub_audience: str = Field(
+        default="",
+        description=(
+            "Expected audience claim in Google Cloud Pub/Sub OIDC tokens. "
+            "Set to your push subscription's audience value "
+            "(typically the service URL, e.g., https://marketplace-handler-xxx.run.app)."
+        ),
+    )
+
     # Google Cloud Service Control
     service_control_service_name: str = Field(
         default="",
