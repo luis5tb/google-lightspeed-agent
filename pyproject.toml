@@ -48,7 +48,7 @@ agent = [
     "a2a-sdk[http-server]>=0.3.0",
     "mcp>=1.0.0",
     # Configuration
-    "python-dotenv>=1.0.0",
+    "python-dotenv>=1.2.2",
     # Google Cloud integration
     "google-cloud-service-control>=1.0.0",
     # OpenTelemetry for distributed tracing
