@@ -126,6 +126,11 @@ Two modes controlled by `DCR_ENABLED`:
 
 Client secrets are Fernet-encrypted at rest (`DCR_ENCRYPTION_KEY`).
 
+### A2UI (Agent-to-UI)
+
+Optional rich UI rendering for Gemini Enterprise, controlled by `A2UI_ENABLED` (default `false`).
+When enabled, the agent's system prompt is augmented with A2UI component schema (Basic Catalog v0.8) via `a2ui-agent-sdk`. The Agent Card declares the A2UI extension and adds `application/json+a2ui` to output modes. Code is in `a2ui/prompt.py`.
+
 ### Usage Metering
 
 `api/a2a/usage_plugin.py` hooks into ADK to track tokens/requests per LLM call. Hourly aggregates are stored in `UsageRecordModel` and async-reported to Google Cloud Service Control (`service_control/reporter.py`). Includes backfill for offline periods.
@@ -134,6 +139,7 @@ Client secrets are Fernet-encrypted at rest (`DCR_ENCRYPTION_KEY`).
 
 ```
 src/lightspeed_agent/
+├── a2ui/                   # A2UI integration: schema manager, prompt augmentation
 ├── api/app.py              # FastAPI app factory (lifespan, middleware, routes)
 ├── api/a2a/                # A2A protocol: routes, AgentCard, usage tracking
 ├── auth/                   # JWT validation middleware + token introspection
@@ -172,6 +178,9 @@ All configuration is via environment variables, managed through Pydantic setting
 **DCR:**
 - `DCR_ENABLED`, `DCR_ENCRYPTION_KEY`
 - `GMA_CLIENT_ID`, `GMA_CLIENT_SECRET`, `GMA_API_BASE_URL`
+
+**A2UI:**
+- `A2UI_ENABLED` (default `false`, enables rich UI rendering for Gemini Enterprise)
 
 **Agent:**
 - `AGENT_HOST`, `AGENT_PORT`
