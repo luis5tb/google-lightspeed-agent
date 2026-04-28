@@ -127,7 +127,7 @@ The system runs as two separate FastAPI services with separate concerns:
 ### Database Isolation
 
 Two separate PostgreSQL databases (security boundary):
-- **Marketplace DB** (`DATABASE_URL`) — accounts, entitlements, DCR clients, usage records. Shared by both services.
+- **Marketplace DB** (`DATABASE_URL`) — entitlements, DCR clients, usage records. Shared by both services.
 - **Session DB** (`SESSION_DATABASE_URL`) — ADK conversation sessions. Agent-only.
 
 Both fall back to SQLite for development. ORM models are in `src/lightspeed_agent/db/models.py`.
@@ -195,7 +195,7 @@ src/lightspeed_agent/
 ├── auth/                   # JWT validation middleware + token introspection
 ├── config/                 # Pydantic BaseSettings (all env vars, validation)
 ├── core/agent.py           # LlmAgent creation with MCP tools
-├── db/                     # SQLAlchemy ORM (4 models, async engine)
+├── db/                     # SQLAlchemy ORM (3 models, async engine)
 ├── dcr/                    # Dynamic Client Registration service
 ├── marketplace/            # Marketplace handler (separate service entry point)
 ├── metering/               # Usage record repository + backfill

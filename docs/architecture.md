@@ -40,9 +40,9 @@ The system consists of **two separate services**:
 ┌─────────────────┐                                  ┌─────────────────────────┐
 │   PostgreSQL    │                                  │    Red Hat SSO          │
 │   Database      │◀──────────────────────────────▶│                         │
-│  - Accounts     │                                  │  - GMA SSO API          │
-│  - Entitlements │                                  │  - OIDC/OAuth           │
-│  - DCR Clients  │                                  └─────────────────────────┘
+│  - Entitlements │                                  │  - GMA SSO API          │
+│  - DCR Clients  │                                  │  - OIDC/OAuth           │
+│                 │                                  └─────────────────────────┘
 └─────────────────┘
          ▲
          │ Read/Write

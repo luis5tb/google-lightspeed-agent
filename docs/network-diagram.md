@@ -101,7 +101,7 @@ graph TB
 | **8003** | HTTP | Handler Probe Server | **Ingress** | Handler health (`/health`) and readiness (`/ready`) probes |
 | **8080** | HTTP | MCP Sidecar (Cloud Run) | **Internal** | Agent to MCP tool calls with JWT forwarding |
 | **8081** | HTTP | MCP Sidecar (Podman) | **Internal** | Agent to MCP tool calls with JWT forwarding |
-| **5432** | TCP | PostgreSQL (Marketplace) | **Internal** | Accounts, entitlements, DCR clients, usage records |
+| **5432** | TCP | PostgreSQL (Marketplace) | **Internal** | Entitlements, DCR clients, usage records |
 | **5433** | TCP | PostgreSQL (Sessions) | **Internal** | ADK conversation session persistence |
 | **6379** | TCP | Redis | **Internal** | Distributed rate limiting (Lua scripts) |
 | **443** | HTTPS | Red Hat SSO | **Egress** | OAuth2 token validation and introspection |

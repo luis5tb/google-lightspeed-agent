@@ -21,8 +21,8 @@ from lightspeed_agent.dcr.models import (
 )
 from lightspeed_agent.dcr.repository import DCRClientRepository
 from lightspeed_agent.dcr.service import DCRService
-from lightspeed_agent.marketplace.models import Account, AccountState, Entitlement, EntitlementState
-from lightspeed_agent.marketplace.repository import AccountRepository, EntitlementRepository
+from lightspeed_agent.marketplace.models import Entitlement, EntitlementState
+from lightspeed_agent.marketplace.repository import EntitlementRepository
 from lightspeed_agent.marketplace.service import ProcurementService
 
 
@@ -131,21 +131,13 @@ class TestDCRService:
     @pytest_asyncio.fixture
     async def service(self, db_session):
         """Create a fresh DCR service with database-backed repositories."""
-        account_repo = AccountRepository()
         entitlement_repo = EntitlementRepository()
         client_repo = DCRClientRepository()
         procurement_service = ProcurementService(
             entitlement_repo=entitlement_repo,
         )
 
-        # Pre-populate with valid account and order
-        account = Account(
-            id="valid-account-123",
-            provider_id="provider-456",
-            state=AccountState.ACTIVE,
-        )
-        await account_repo.create(account)
-
+        # Pre-populate with valid order
         entitlement = Entitlement(
             id="valid-order-789",
             account_id="valid-account-123",
@@ -256,19 +248,11 @@ class TestDCRServiceConcurrentRace:
     @pytest_asyncio.fixture
     async def service(self, db_session):
         """Create a DCR service with real repository and mock GMA client."""
-        account_repo = AccountRepository()
         entitlement_repo = EntitlementRepository()
         client_repo = DCRClientRepository()
         procurement_service = ProcurementService(
             entitlement_repo=entitlement_repo,
         )
-
-        account = Account(
-            id="race-account-123",
-            provider_id="provider-456",
-            state=AccountState.ACTIVE,
-        )
-        await account_repo.create(account)
 
         entitlement = Entitlement(
             id="race-order-789",
