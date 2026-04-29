@@ -24,13 +24,12 @@ metadata:
     run.googleapis.com/description: "Red Hat Lightspeed Agent for Google Cloud - A2A-ready agent using Google ADK"
     run.googleapis.com/ingress: all
     run.googleapis.com/launch-stage: GA
+    run.googleapis.com/minScale: "1"
+    run.googleapis.com/maxScale: "10"
 spec:
   template:
     metadata:
       annotations:
-        # Scaling configuration
-        autoscaling.knative.dev/minScale: "0"
-        autoscaling.knative.dev/maxScale: "2"
         # CPU allocation
         run.googleapis.com/cpu-throttling: "false"
         # Startup probe
