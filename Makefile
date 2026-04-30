@@ -1,7 +1,7 @@
 # Red Hat Lightspeed Agent for Google Cloud - Makefile
 # Common development and deployment commands
 
-.PHONY: help build build-agent build-marketplace run stop logs logs-mcp clean test lint dev check-env
+.PHONY: help build build-agent build-marketplace run stop logs logs-mcp clean test lint dev check-env lock lock-agent lock-handler lock-check
 
 # Default target
 help:
@@ -11,6 +11,12 @@ help:
 	@echo "  make dev          - Run agent in development mode (no container)"
 	@echo "  make test         - Run tests"
 	@echo "  make lint         - Run linter and type checker"
+	@echo ""
+	@echo "Dependency Management:"
+	@echo "  make lock         - Regenerate all lock files (run after changing pyproject.toml)"
+	@echo "  make lock-agent   - Regenerate agent lock file only"
+	@echo "  make lock-handler - Regenerate marketplace handler lock file only"
+	@echo "  make lock-check   - Verify lock files are in sync (used by CI)"
 	@echo ""
 	@echo "Container (Podman):"
 	@echo "  make build             - Build all container images (agent + marketplace handler)"
@@ -48,6 +54,38 @@ lint:
 	source .venv/bin/activate && ruff check src/ tests/
 	@echo "Running type checker..."
 	source .venv/bin/activate && mypy src/lightspeed_agent/ --ignore-missing-imports
+
+# =============================================================================
+# Dependency Management
+# =============================================================================
+
+lock: lock-agent lock-handler
+
+lock-agent:
+	@echo "Regenerating agent lock file..."
+	source .venv/bin/activate && uv pip compile --generate-hashes --python-version=3.12 --python-platform=linux \
+		--extra agent --output-file=requirements-agent.txt pyproject.toml
+	@echo "✓ requirements-agent.txt updated"
+
+lock-handler:
+	@echo "Regenerating marketplace handler lock file..."
+	source .venv/bin/activate && uv pip compile --generate-hashes --python-version=3.12 --python-platform=linux \
+		--output-file=requirements-handler.txt pyproject.toml
+	@echo "✓ requirements-handler.txt updated"
+
+lock-check:
+	@echo "Checking if lock files are in sync with pyproject.toml..."
+	@source .venv/bin/activate && uv pip compile --generate-hashes --python-version=3.12 --python-platform=linux \
+		--extra agent --output-file=/tmp/requirements-agent-check.txt pyproject.toml
+	@diff requirements-agent.txt /tmp/requirements-agent-check.txt || \
+		(echo "ERROR: requirements-agent.txt is out of sync. Run 'make lock' to update." && rm -f /tmp/requirements-agent-check.txt && exit 1)
+	@rm -f /tmp/requirements-agent-check.txt
+	@source .venv/bin/activate && uv pip compile --generate-hashes --python-version=3.12 --python-platform=linux \
+		--output-file=/tmp/requirements-handler-check.txt pyproject.toml
+	@diff requirements-handler.txt /tmp/requirements-handler-check.txt || \
+		(echo "ERROR: requirements-handler.txt is out of sync. Run 'make lock' to update." && rm -f /tmp/requirements-handler-check.txt && exit 1)
+	@rm -f /tmp/requirements-handler-check.txt
+	@echo "✓ Lock files are in sync"
 
 # =============================================================================
 # Container Commands (Podman)

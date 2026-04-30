@@ -68,9 +68,36 @@ jobs:
 
           echo "All $(echo "$COMMITS" | wc -w) commit(s) verified successfully."
 
+  lock-file-check:
+    name: Lock file verification
+    runs-on: ubuntu-latest
+    container:
+      image: quay.io/centos/centos:stream9
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Python and uv
+        run: |
+          dnf install -y python3.12 python3.12-pip python3.12-devel
+          python3.12 -m pip install -e ".[dev]"
+
+      - name: Verify agent lock file
+        run: |
+          python3.12 -m uv pip compile --generate-hashes --python-version=3.12 --python-platform=linux \
+            --extra agent --output-file=/tmp/requirements-agent-check.txt pyproject.toml
+          diff requirements-agent.txt /tmp/requirements-agent-check.txt || \
+            (echo "ERROR: requirements-agent.txt is out of sync. Run 'make lock' to update." && exit 1)
+
+      - name: Verify handler lock file
+        run: |
+          python3.12 -m uv pip compile --generate-hashes --python-version=3.12 --python-platform=linux \
+            --output-file=/tmp/requirements-handler-check.txt pyproject.toml
+          diff requirements-handler.txt /tmp/requirements-handler-check.txt || \
+            (echo "ERROR: requirements-handler.txt is out of sync. Run 'make lock' to update." && exit 1)
+
   lint:
     name: Lint
-    needs: [konflux-verify]
+    needs: [konflux-verify, lock-file-check]
     if: >-
       !cancelled() &&
       (needs.konflux-verify.result == 'success' || needs.konflux-verify.result == 'skipped')
@@ -84,7 +111,9 @@ jobs:
         run: dnf install -y python3.12 python3.12-pip python3.12-devel
 
       - name: Install dependencies
-        run: python3.12 -m pip install -e ".[agent,dev]"
+        run: |
+          python3.12 -m pip install --require-hashes -r requirements-agent.txt
+          python3.12 -m pip install -e ".[dev]"
 
       - name: Run ruff
         run: python3.12 -m ruff check src/ tests/
@@ -94,7 +123,7 @@ jobs:
 
   test:
     name: Test
-    needs: [konflux-verify]
+    needs: [konflux-verify, lock-file-check]
     if: >-
       !cancelled() &&
       (needs.konflux-verify.result == 'success' || needs.konflux-verify.result == 'skipped')
@@ -108,14 +137,16 @@ jobs:
         run: dnf install -y python3.12 python3.12-pip python3.12-devel
 
       - name: Install dependencies
-        run: python3.12 -m pip install -e ".[agent,dev]"
+        run: |
+          python3.12 -m pip install --require-hashes -r requirements-agent.txt
+          python3.12 -m pip install -e ".[dev]"
 
       - name: Run tests
         run: python3.12 -m pytest tests/ -v
 
   build:
     name: Build container image
-    needs: [konflux-verify]
+    needs: [konflux-verify, lock-file-check]
     if: >-
       !cancelled() &&
       (needs.konflux-verify.result == 'success' || needs.konflux-verify.result == 'skipped')
@@ -129,7 +160,7 @@ jobs:
   ci-gate:
     name: CI Gate
     if: always()
-    needs: [konflux-verify, lint, test, build]
+    needs: [konflux-verify, lock-file-check, lint, test, build]
     runs-on: ubuntu-latest
     steps:
       - name: Check all jobs passed
@@ -139,12 +170,16 @@ jobs:
             echo "Konflux verification failed: ${{ needs.konflux-verify.result }}"
             exit 1
           fi
-          if [[ "${{ needs.lint.result }}" != "success" || "${{ needs.test.result }}" != "success" || "${{ needs.build.result }}" != "success" ]]; then
+          if [[ "${{ needs.lint.result }}" != "success" || \
+                "${{ needs.test.result }}" != "success" || \
+                "${{ needs.build.result }}" != "success" || \
+                "${{ needs.lock-file-check.result }}" != "success" ]]; then
             echo "One or more CI jobs failed or were cancelled."
-            echo "  konflux-verify: ${{ needs.konflux-verify.result }}"
-            echo "  lint:           ${{ needs.lint.result }}"
-            echo "  test:           ${{ needs.test.result }}"
-            echo "  build:          ${{ needs.build.result }}"
+            echo "  konflux-verify:  ${{ needs.konflux-verify.result }}"
+            echo "  lock-file-check: ${{ needs.lock-file-check.result }}"
+            echo "  lint:            ${{ needs.lint.result }}"
+            echo "  test:            ${{ needs.test.result }}"
+            echo "  build:           ${{ needs.build.result }}"
             exit 1
           fi
           echo "All CI jobs passed."
