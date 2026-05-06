@@ -230,13 +230,6 @@ class Settings(BaseSettings):
     )
 
     # DCR (Dynamic Client Registration) Configuration
-    dcr_enabled: bool = Field(
-        default=True,
-        description=(
-            "Enable real DCR with Red Hat SSO via the GMA API."
-            " When disabled, uses pre-seeded credentials from the database."
-        ),
-    )
     dcr_client_name_prefix: str = Field(
         default="gemini-order-",
         description="Prefix for OAuth client names created via DCR",

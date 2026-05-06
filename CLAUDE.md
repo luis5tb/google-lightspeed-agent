@@ -120,11 +120,7 @@ The agent loads tools from a Red Hat Lightspeed MCP server running as a sidecar:
 
 ### DCR (Dynamic Client Registration)
 
-Two modes controlled by `DCR_ENABLED`:
-- **Real DCR** (`true`): Creates OAuth tenant clients in Red Hat SSO via the GMA API (`dcr/gma_client.py`). Authenticates with `GMA_CLIENT_ID`/`GMA_CLIENT_SECRET` using `scope=api.iam.clients.gma`.
-- **Static credentials** (`false`): Accepts pre-seeded client_id/secret in DCR request body
-
-Client secrets are Fernet-encrypted at rest (`DCR_ENCRYPTION_KEY`).
+Creates OAuth tenant clients in Red Hat SSO via the GMA API (`dcr/gma_client.py`). Authenticates with `GMA_CLIENT_ID`/`GMA_CLIENT_SECRET` using `scope=api.iam.clients.gma`. Client secrets are Fernet-encrypted at rest (`DCR_ENCRYPTION_KEY`).
 
 ### Entitlement Provisioning Lifecycle
 
@@ -192,7 +188,7 @@ All configuration is via environment variables, managed through Pydantic setting
 - `MCP_TRANSPORT_MODE`, `MCP_SERVER_URL`
 
 **DCR:**
-- `DCR_ENABLED`, `DCR_ENCRYPTION_KEY`
+- `DCR_ENCRYPTION_KEY`
 - `GMA_CLIENT_ID`, `GMA_CLIENT_SECRET`, `GMA_API_BASE_URL`
 
 **Agent:**
