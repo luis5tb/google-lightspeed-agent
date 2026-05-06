@@ -573,8 +573,9 @@ sed -e "s|\${PROJECT_ID}|$GOOGLE_CLOUD_PROJECT|g" \
 ### Alternative: Deploy with Cloud Build
 
 Instead of running `deploy.sh` manually (step 7), you can use Google Cloud Build
-to build images, copy the MCP server image, and deploy both services in a single
-command. Cloud Build also handles step 6 (Copy MCP Image to GCR) automatically.
+to pull pre-built images from Quay.io (built by Konflux), push them to GCR, and
+deploy both services in a single command. Cloud Build also handles step 6 (Copy
+MCP Image to GCR) automatically.
 
 **Prerequisites** (in addition to steps 1-5 above):
 
@@ -595,7 +596,7 @@ gcloud projects add-iam-policy-binding $GOOGLE_CLOUD_PROJECT \
 **Deploy:**
 
 ```bash
-# Build from source and deploy everything (uses defaults from steps 1-2)
+# Pull images from Quay.io and deploy everything (uses defaults from steps 1-2)
 gcloud builds submit --config=cloudbuild.yaml
 
 # Deploy with public access
@@ -606,22 +607,16 @@ gcloud builds submit --config=cloudbuild.yaml \
 gcloud builds submit --config=cloudbuild.yaml \
   --substitutions=_REGION=europe-west1,_IMAGE_TAG=v1.0
 
-# Deploy using pre-built images from Quay.io (skip building from source)
+# Deploy specific image tags from Quay.io
 gcloud builds submit --config=cloudbuild.yaml \
-  --substitutions=_BUILD_FROM_SOURCE=false
-
-# Deploy specific pre-built image tags from Quay.io
-gcloud builds submit --config=cloudbuild.yaml \
-  --substitutions=_BUILD_FROM_SOURCE=false,_AGENT_SOURCE_IMAGE=quay.io/ecosystem-appeng/google-lightspeed-agent:v1.0,_HANDLER_SOURCE_IMAGE=quay.io/ecosystem-appeng/google-marketplace-handler:v1.0
+  --substitutions=_AGENT_SOURCE_IMAGE=quay.io/ecosystem-appeng/google-lightspeed-agent:v1.0,_HANDLER_SOURCE_IMAGE=quay.io/ecosystem-appeng/google-marketplace-handler:v1.0
 ```
 
 **What the pipeline does:**
 
 | Phase | Steps | Description |
 |-------|-------|-------------|
-| Build | `build-agent`, `build-handler`, `copy-mcp` | Builds both container images and copies the MCP image from Quay.io to GCR (parallel). Skipped when `_BUILD_FROM_SOURCE=false` |
-| Copy | `copy-agent`, `copy-handler` | Pulls pre-built images from Quay.io and pushes to GCR. Only runs when `_BUILD_FROM_SOURCE=false` |
-| Push | `push-agent`, `push-handler` | Pushes built images to GCR. Skipped when `_BUILD_FROM_SOURCE=false` |
+| Copy | `copy-agent`, `copy-handler`, `copy-mcp` | Pulls pre-built images from Quay.io and pushes to GCR (parallel) |
 | Deploy | `deploy-handler`, `deploy-agent` | Deploys handler first, then agent (using YAML configs with sed substitution, same as `deploy.sh`) |
 | Post-deploy | `allow-unauthenticated`, `configure-pubsub`, `update-agent-urls` | Configures IAM, Pub/Sub push subscription, and sets `AGENT_PROVIDER_URL`/`MARKETPLACE_HANDLER_URL` |
 
@@ -634,6 +629,7 @@ All variables have defaults matching `deploy.sh`. Override any with `--substitut
 | `_SERVICE_NAME` | `lightspeed-agent` | Cloud Run agent service name |
 | `_HANDLER_SERVICE_NAME` | `marketplace-handler` | Cloud Run handler service name |
 | `_REGION` | `us-central1` | GCP region |
+| `_VERTEXAI_LOCATION` | `global` | Vertex AI location |
 | `_IMAGE_TAG` | `latest` | Container image tag |
 | `_SERVICE_ACCOUNT_NAME` | `lightspeed-agent` | GCP service account name |
 | `_DB_INSTANCE_NAME` | `lightspeed-agent-db` | Cloud SQL instance name |
@@ -643,15 +639,15 @@ All variables have defaults matching `deploy.sh`. Override any with `--substitut
 | `_PUBSUB_INVOKER_NAME` | `pubsub-invoker` | Pub/Sub invoker SA name |
 | `_PUBSUB_TOPIC` | `marketplace-entitlements` | Pub/Sub topic for marketplace events |
 | `_PUBSUB_SUBSCRIPTION` | *(derived from topic)* | Pub/Sub subscription name (defaults to `{topic}-sub`) |
-| `_BUILD_FROM_SOURCE` | `true` | Set to `false` to use pre-built images from Quay.io instead of building from source |
-| `_AGENT_SOURCE_IMAGE` | `quay.io/ecosystem-appeng/google-lightspeed-agent:latest` | Pre-built agent image (used when `_BUILD_FROM_SOURCE=false`) |
-| `_HANDLER_SOURCE_IMAGE` | `quay.io/ecosystem-appeng/google-marketplace-handler:latest` | Pre-built handler image (used when `_BUILD_FROM_SOURCE=false`) |
+| `_AGENT_SOURCE_IMAGE` | `quay.io/ecosystem-appeng/google-lightspeed-agent:latest` | Agent image to pull from Quay.io |
+| `_HANDLER_SOURCE_IMAGE` | `quay.io/ecosystem-appeng/google-marketplace-handler:latest` | Handler image to pull from Quay.io |
+| `_SERVICE_CONTROL_SERVICE_NAME` | *(empty)* | Google Cloud Service Control service name for usage metering |
 
 **Cloud Build vs deploy.sh:**
 
 | | `deploy.sh` | `cloudbuild.yaml` |
 |-|-------------|-------------------|
-| Image build | Optional (`--build` flag) | Builds from source by default, or pulls pre-built images from Quay.io (`_BUILD_FROM_SOURCE=false`) |
+| Image source | Optional local build (`--build` flag) | Pulls pre-built images from Quay.io (built by Konflux) |
 | MCP image copy | Manual (step 6) | Automatic |
 | Deployment | Manual, one service at a time | Full pipeline, both services |
 | Pub/Sub setup | Automatic | Automatic |
