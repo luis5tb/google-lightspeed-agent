@@ -55,6 +55,7 @@ PUBSUB_SUBSCRIPTION="${PUBSUB_SUBSCRIPTION:-${PUBSUB_TOPIC}-sub}"
 
 # Load balancer configuration
 ENABLE_LOAD_BALANCER="${ENABLE_LOAD_BALANCER:-false}"
+ENABLE_CLOUD_ARMOR="${ENABLE_CLOUD_ARMOR:-false}"
 LB_NAME="${LB_NAME:-lightspeed-lb}"
 
 # Parse arguments
@@ -87,6 +88,9 @@ echo "  - Cloud Run services: $SERVICE_NAME, $HANDLER_SERVICE_NAME"
 if [[ "$ENABLE_LOAD_BALANCER" == "true" ]]; then
     echo "  - Load balancer: forwarding rule, HTTPS proxy, URL map, SSL cert,"
     echo "                   backend services, NEGs, static IP (prefix: $LB_NAME)"
+fi
+if [[ "$ENABLE_CLOUD_ARMOR" == "true" ]]; then
+    echo "  - Cloud Armor: security policy and WAF rules (${LB_NAME}-security-policy)"
 fi
 echo "  - Pub/Sub topic: $PUBSUB_TOPIC"
 echo "  - Pub/Sub subscription: $PUBSUB_SUBSCRIPTION"
@@ -181,6 +185,27 @@ if [[ "$ENABLE_LOAD_BALANCER" == "true" ]]; then
         log_info "SSL certificate '${LB_NAME}-cert' deleted"
     else
         log_info "SSL certificate '${LB_NAME}-cert' does not exist, skipping"
+    fi
+
+    # Delete Cloud Armor security policy (must be detached from backends first)
+    if [[ "$ENABLE_CLOUD_ARMOR" == "true" ]]; then
+        log_info "Removing Cloud Armor security policy..."
+
+        # Detach from backend services first
+        gcloud compute backend-services update "${LB_NAME}-agent-backend" \
+            --security-policy="" --global --project="$PROJECT_ID" 2>/dev/null || true
+        gcloud compute backend-services update "${LB_NAME}-handler-backend" \
+            --security-policy="" --global --project="$PROJECT_ID" 2>/dev/null || true
+
+        # Delete the security policy
+        if gcloud compute security-policies describe "${LB_NAME}-security-policy" \
+            --global --project="$PROJECT_ID" &>/dev/null; then
+            gcloud compute security-policies delete "${LB_NAME}-security-policy" \
+                --global --project="$PROJECT_ID" --quiet
+            log_info "Security policy '${LB_NAME}-security-policy' deleted"
+        else
+            log_info "Security policy '${LB_NAME}-security-policy' does not exist, skipping"
+        fi
     fi
 
     # Delete backend services
@@ -372,6 +397,9 @@ echo "The following resources have been removed:"
 echo "  - Cloud Run services ($SERVICE_NAME, $HANDLER_SERVICE_NAME)"
 if [[ "$ENABLE_LOAD_BALANCER" == "true" ]]; then
     echo "  - Load balancer resources (forwarding rule, proxy, URL map, cert, backends, NEGs, IP)"
+fi
+if [[ "$ENABLE_CLOUD_ARMOR" == "true" ]]; then
+    echo "  - Cloud Armor security policy and WAF rules"
 fi
 echo "  - Pub/Sub topic and subscription"
 echo "  - Secret Manager secrets"

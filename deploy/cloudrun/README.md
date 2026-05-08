@@ -7,6 +7,7 @@ Deploy the Red Hat Lightspeed Agent for Google Cloud to Google Cloud Run for pro
 - [Architecture](#architecture)
 - [Service Accounts](#service-accounts)
 - [Load Balancer (Optional)](#load-balancer-optional)
+  - [Cloud Armor (WAF)](#cloud-armor-waf)
 - [Prerequisites](#prerequisites)
 - [Quick Start](#quick-start)
   - [1. Set Environment Variables](#1-set-environment-variables)
@@ -231,6 +232,85 @@ gcloud compute ssl-certificates describe ${LB_NAME:-lightspeed-lb}-cert \
 
 The certificate goes through these states: `PROVISIONING` → `ACTIVE`. HTTPS traffic will not work until the certificate reaches `ACTIVE` status.
 
+### Cloud Armor (WAF)
+
+When `ENABLE_CLOUD_ARMOR=true` (requires `ENABLE_LOAD_BALANCER=true`), the deployment scripts create a **Google Cloud Armor** security policy and attach it to both backend services. Cloud Armor provides:
+
+- **Web Application Firewall (WAF)** with preconfigured OWASP ModSecurity Core Rule Set (CRS) rules
+- **DDoS mitigation** at the edge via Google's global infrastructure
+- **Layer 7 filtering** to block common web attacks before they reach your services
+
+#### Enabling Cloud Armor
+
+```bash
+export ENABLE_LOAD_BALANCER=true
+export ENABLE_CLOUD_ARMOR=true
+export DOMAIN_NAME="agent.example.com"
+
+./deploy/cloudrun/deploy.sh
+```
+
+#### Preconfigured WAF Rules
+
+The security policy includes the following OWASP ModSecurity CRS rules, each configured to deny matching requests with HTTP 403:
+
+| Priority | Rule | Protection |
+|----------|------|------------|
+| 1000 | `sqli-v33-stable` | SQL injection |
+| 1100 | `xss-v33-stable` | Cross-site scripting |
+| 1200 | `lfi-v33-stable` | Local file inclusion |
+| 1300 | `rfi-v33-stable` | Remote file inclusion |
+| 1400 | `rce-v33-stable` | Remote code execution |
+| 1500 | `scannerdetection-v33-stable` | Scanner and crawler detection |
+| 1600 | `protocolattack-v33-stable` | Protocol attacks (e.g., HTTP splitting) |
+| 1700 | `sessionfixation-v33-stable` | Session fixation |
+
+#### Checking Policy Status
+
+```bash
+gcloud compute security-policies describe ${LB_NAME:-lightspeed-lb}-security-policy \
+  --global --project=$GOOGLE_CLOUD_PROJECT
+```
+
+#### Viewing Blocked Requests
+
+Cloud Armor logs blocked requests to Cloud Logging. To view recent blocks:
+
+```bash
+gcloud logging read 'resource.type="http_load_balancer" AND jsonPayload.enforcedSecurityPolicy.outcome="DENY"' \
+  --project=$GOOGLE_CLOUD_PROJECT --limit=25 \
+  --format='table(timestamp, jsonPayload.enforcedSecurityPolicy.name, jsonPayload.enforcedSecurityPolicy.matchedRule, httpRequest.requestUrl)'
+```
+
+#### Customizing Rules
+
+You can add, remove, or modify rules after deployment:
+
+```bash
+# Remove a rule (e.g., scanner detection)
+gcloud compute security-policies rules delete 1500 \
+  --security-policy="${LB_NAME:-lightspeed-lb}-security-policy" \
+  --global --project=$GOOGLE_CLOUD_PROJECT
+
+# Switch a rule to preview mode (log only, do not block)
+gcloud compute security-policies rules update 1000 \
+  --security-policy="${LB_NAME:-lightspeed-lb}-security-policy" \
+  --action=deny-403 \
+  --preview \
+  --global --project=$GOOGLE_CLOUD_PROJECT
+
+# Add a custom IP deny rule
+gcloud compute security-policies rules create 900 \
+  --security-policy="${LB_NAME:-lightspeed-lb}-security-policy" \
+  --src-ip-ranges="203.0.113.0/24" \
+  --action=deny-403 \
+  --global --project=$GOOGLE_CLOUD_PROJECT
+```
+
+#### Pricing
+
+Cloud Armor **Standard** tier is included with GCLB at no extra cost for preconfigured WAF rules and basic security policies. **Cloud Armor Enterprise** (formerly Managed Protection Plus) provides additional features such as adaptive protection, named IP lists, and threat intelligence — see [Cloud Armor pricing](https://cloud.google.com/armor/pricing) for details.
+
 ## Prerequisites
 
 - [Google Cloud CLI](https://cloud.google.com/sdk/docs/install) installed and authenticated
@@ -265,6 +345,9 @@ export ENABLE_MARKETPLACE="false"
 # export ENABLE_LOAD_BALANCER="true"
 # export DOMAIN_NAME="agent.example.com"  # Required when LB is enabled
 # export LB_NAME="lightspeed-lb"          # Default prefix for LB resources
+
+# Optional: enable Cloud Armor WAF (requires ENABLE_LOAD_BALANCER=true)
+# export ENABLE_CLOUD_ARMOR="true"
 ```
 
 **Google Cloud Marketplace deployments:** If you are deploying with marketplace
@@ -322,6 +405,7 @@ The setup script enables required APIs, creates service accounts (runtime + Pub/
 | `SERVICE_CONTROL_SERVICE_NAME` | - | Managed service name from the Producer Portal. **Required** for marketplace deployments — used for entitlement approval and product-level event filtering. |
 | `ENABLE_MARKETPLACE` | `true` | Create Pub/Sub invoker SA and topic for marketplace integration |
 | `ENABLE_LOAD_BALANCER` | `false` | Enable Google Cloud Load Balancer creation (see [Load Balancer](#load-balancer-optional)) |
+| `ENABLE_CLOUD_ARMOR` | `false` | Enable Cloud Armor WAF security policy (requires `ENABLE_LOAD_BALANCER=true`). See [Cloud Armor (WAF)](#cloud-armor-waf). |
 | `DOMAIN_NAME` | - | Domain name for the SSL certificate. **Required** when `ENABLE_LOAD_BALANCER=true`. |
 | `LB_NAME` | `lightspeed-lb` | Prefix for all load balancer resource names |
 
@@ -677,7 +761,7 @@ AGENT_URL=$(gcloud run services describe ${SERVICE_NAME:-lightspeed-agent} \
 curl -s $AGENT_URL/.well-known/agent.json | jq '.capabilities.extensions'
 ```
 
-**Load balancer:** When `ENABLE_LOAD_BALANCER=true`, `deploy.sh` automatically creates the GCLB resources (NEGs, backend services, URL map, HTTPS proxy, forwarding rule) and restricts Cloud Run ingress to `internal-and-cloud-load-balancing` on both services. After deployment, check the SSL certificate status:
+**Load balancer:** When `ENABLE_LOAD_BALANCER=true`, `deploy.sh` automatically creates the GCLB resources (NEGs, backend services, URL map, HTTPS proxy, forwarding rule) and restricts Cloud Run ingress to `internal-and-cloud-load-balancing` on both services. When both `ENABLE_LOAD_BALANCER=true` and `ENABLE_CLOUD_ARMOR=true`, the script also creates a Cloud Armor security policy with preconfigured WAF rules and attaches it to both backend services. After deployment, check the SSL certificate status:
 
 ```bash
 gcloud compute ssl-certificates describe ${LB_NAME:-lightspeed-lb}-cert \
@@ -2165,6 +2249,37 @@ The path matcher should route `/dcr` to `{LB_NAME}-handler-backend`. If missing,
 ./deploy/cloudrun/deploy.sh --service all
 ```
 
+### Legitimate Requests Blocked by Cloud Armor
+
+If Cloud Armor is blocking legitimate traffic, check which rule is triggering:
+
+```bash
+gcloud logging read 'resource.type="http_load_balancer" AND jsonPayload.enforcedSecurityPolicy.outcome="DENY"' \
+  --project=$GOOGLE_CLOUD_PROJECT --limit=10 \
+  --format='table(timestamp, jsonPayload.enforcedSecurityPolicy.matchedRule, httpRequest.requestUrl)'
+```
+
+To stop blocking while you investigate, switch the offending rule to **preview mode** (logs only, no enforcement):
+
+```bash
+# Example: put the SQL injection rule into preview mode
+gcloud compute security-policies rules update 1000 \
+  --security-policy="${LB_NAME:-lightspeed-lb}-security-policy" \
+  --action=deny-403 \
+  --preview \
+  --global --project=$GOOGLE_CLOUD_PROJECT
+```
+
+To re-enable enforcement, run the same command without `--preview`:
+
+```bash
+gcloud compute security-policies rules update 1000 \
+  --security-policy="${LB_NAME:-lightspeed-lb}-security-policy" \
+  --action=deny-403 \
+  --no-preview \
+  --global --project=$GOOGLE_CLOUD_PROJECT
+```
+
 ### Orders Stuck in Pending Status
 
 If marketplace subscriptions remain in `pending` status in the Google Cloud
@@ -2264,6 +2379,7 @@ This will delete:
 - Secret Manager secrets
 - Service accounts (runtime + Pub/Sub invoker) and IAM bindings
 - Load balancer resources (when `ENABLE_LOAD_BALANCER=true`): forwarding rule, HTTPS proxy, SSL certificate, URL map, backend services, NEGs, and static IP
+- Cloud Armor security policy and WAF rules (when `ENABLE_CLOUD_ARMOR=true`)
 
 Use `--force` to skip the confirmation prompt:
 

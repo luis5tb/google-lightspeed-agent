@@ -77,6 +77,7 @@ ENABLE_MARKETPLACE="${ENABLE_MARKETPLACE:-true}"
 
 # Load balancer configuration
 ENABLE_LOAD_BALANCER="${ENABLE_LOAD_BALANCER:-false}"
+ENABLE_CLOUD_ARMOR="${ENABLE_CLOUD_ARMOR:-false}"
 DOMAIN_NAME="${DOMAIN_NAME:-}"
 LB_NAME="${LB_NAME:-lightspeed-lb}"
 SERVICE_CONTROL_SERVICE_NAME="${SERVICE_CONTROL_SERVICE_NAME:-}"
@@ -148,6 +149,11 @@ fi
 if [[ "$ENABLE_LOAD_BALANCER" == "true" && -z "$DOMAIN_NAME" ]]; then
     log_error "DOMAIN_NAME is required when ENABLE_LOAD_BALANCER=true"
     echo "  export DOMAIN_NAME=your-domain.example.com"
+    exit 1
+fi
+
+if [[ "$ENABLE_CLOUD_ARMOR" == "true" && "$ENABLE_LOAD_BALANCER" != "true" ]]; then
+    log_error "ENABLE_CLOUD_ARMOR requires ENABLE_LOAD_BALANCER=true"
     exit 1
 fi
 
@@ -420,6 +426,62 @@ setup_load_balancer() {
         log_info "Backend service '${LB_NAME}-handler-backend' created"
     else
         log_info "Backend service '${LB_NAME}-handler-backend' already exists"
+    fi
+
+    # -------------------------------------------------------------------------
+    # Create Cloud Armor security policy (if enabled)
+    # -------------------------------------------------------------------------
+    if [[ "$ENABLE_CLOUD_ARMOR" == "true" ]]; then
+        log_info "Configuring Cloud Armor security policy..."
+
+        if ! gcloud compute security-policies describe "${LB_NAME}-security-policy" \
+            --global --project="$PROJECT_ID" &>/dev/null; then
+            gcloud compute security-policies create "${LB_NAME}-security-policy" \
+                --global \
+                --project="$PROJECT_ID"
+            log_info "Security policy '${LB_NAME}-security-policy' created"
+        else
+            log_info "Security policy '${LB_NAME}-security-policy' already exists"
+        fi
+
+        # Add preconfigured WAF rules (OWASP ModSecurity CRS)
+        declare -A WAF_RULES=(
+            [1000]="sqli-v33-stable"
+            [1100]="xss-v33-stable"
+            [1200]="lfi-v33-stable"
+            [1300]="rfi-v33-stable"
+            [1400]="rce-v33-stable"
+            [1500]="scannerdetection-v33-stable"
+            [1600]="protocolattack-v33-stable"
+            [1700]="sessionfixation-v33-stable"
+        )
+
+        for priority in $(echo "${!WAF_RULES[@]}" | tr ' ' '\n' | sort -n); do
+            rule_name="${WAF_RULES[$priority]}"
+            if ! gcloud compute security-policies rules describe "$priority" \
+                --security-policy="${LB_NAME}-security-policy" \
+                --global --project="$PROJECT_ID" &>/dev/null; then
+                gcloud compute security-policies rules create "$priority" \
+                    --security-policy="${LB_NAME}-security-policy" \
+                    --expression="evaluatePreconfiguredExpr('${rule_name}')" \
+                    --action=deny-403 \
+                    --global \
+                    --project="$PROJECT_ID"
+                log_info "WAF rule '${rule_name}' added at priority $priority"
+            else
+                log_info "WAF rule at priority $priority already exists"
+            fi
+        done
+
+        # Attach security policy to both backend services
+        log_info "Attaching security policy to backend services..."
+        gcloud compute backend-services update "${LB_NAME}-agent-backend" \
+            --security-policy="${LB_NAME}-security-policy" \
+            --global --project="$PROJECT_ID"
+        gcloud compute backend-services update "${LB_NAME}-handler-backend" \
+            --security-policy="${LB_NAME}-security-policy" \
+            --global --project="$PROJECT_ID"
+        log_info "Cloud Armor security policy attached to both backend services"
     fi
 
     # -------------------------------------------------------------------------
