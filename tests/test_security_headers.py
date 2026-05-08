@@ -14,6 +14,7 @@ EXPECTED_CSP = "default-src 'none'"
 EXPECTED_REFERRER = "strict-origin-when-cross-origin"
 EXPECTED_PERMISSIONS = "geolocation=(), camera=(), microphone=()"
 EXPECTED_CACHE = "no-store"
+EXPECTED_CACHE_CONTROL = "no-store"
 
 
 @pytest.fixture
@@ -50,6 +51,7 @@ def _assert_security_headers(response):
     assert response.headers["referrer-policy"] == EXPECTED_REFERRER
     assert response.headers["permissions-policy"] == EXPECTED_PERMISSIONS
     assert response.headers["cache-control"] == EXPECTED_CACHE
+    assert response.headers["cache-control"] == EXPECTED_CACHE_CONTROL
 
 
 class TestSecurityHeadersMiddleware:
