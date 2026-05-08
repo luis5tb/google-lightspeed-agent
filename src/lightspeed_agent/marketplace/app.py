@@ -30,6 +30,18 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Application lifespan manager for startup/shutdown events."""
     settings = get_settings()
 
+    # Warn if PUBSUB_AUDIENCE is not set in Cloud Run.
+    # Without an audience check, OIDC tokens issued for other services
+    # would be accepted by the /pubsub endpoint.
+    if not settings.pubsub_audience and os.getenv("K_SERVICE"):
+        logger.warning(
+            "PUBSUB_AUDIENCE is not set in Cloud Run (K_SERVICE=%s). "
+            "Pub/Sub OIDC tokens will be verified for signature and expiry "
+            "but NOT for audience. Set PUBSUB_AUDIENCE to your service URL "
+            "for stricter token binding.",
+            os.getenv("K_SERVICE"),
+        )
+
     # Startup: Initialize database
     try:
         from lightspeed_agent.db import init_database
