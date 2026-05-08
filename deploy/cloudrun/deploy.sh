@@ -434,11 +434,12 @@ setup_load_balancer() {
             --default-service="${LB_NAME}-agent-backend" \
             --global \
             --project="$PROJECT_ID"
-        # Path rule: /dcr → marketplace handler
+        # Path rule: /dcr → marketplace handler, everything else → agent
         gcloud compute url-maps add-path-matcher "${LB_NAME}-url-map" \
             --path-matcher-name=marketplace \
-            --default-service="${LB_NAME}-handler-backend" \
+            --default-service="${LB_NAME}-agent-backend" \
             --path-rules="/dcr=${LB_NAME}-handler-backend" \
+            --new-hosts="*" \
             --global \
             --project="$PROJECT_ID"
         log_info "URL map '${LB_NAME}-url-map' created"
