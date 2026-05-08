@@ -288,7 +288,7 @@ configure_pubsub_push() {
         return
     fi
 
-    local push_endpoint="${handler_url}/dcr"
+    local push_endpoint="${handler_url}/pubsub"
 
     # Grant the Pub/Sub Invoker SA permission to invoke the marketplace-handler.
     # This is a service-level binding (not project-level), following least privilege.
