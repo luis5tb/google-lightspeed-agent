@@ -74,6 +74,11 @@ PUBSUB_INVOKER_SA="${PUBSUB_INVOKER_NAME}@${PROJECT_ID}.iam.gserviceaccount.com"
 
 # Marketplace configuration
 ENABLE_MARKETPLACE="${ENABLE_MARKETPLACE:-true}"
+
+# Load balancer configuration
+ENABLE_LOAD_BALANCER="${ENABLE_LOAD_BALANCER:-false}"
+DOMAIN_NAME="${DOMAIN_NAME:-}"
+LB_NAME="${LB_NAME:-lightspeed-lb}"
 SERVICE_CONTROL_SERVICE_NAME="${SERVICE_CONTROL_SERVICE_NAME:-}"
 PUBSUB_TOPIC="${PUBSUB_TOPIC:-marketplace-entitlements}"
 
@@ -137,6 +142,12 @@ done
 # Validate required variables
 if [[ -z "$PROJECT_ID" ]]; then
     log_error "GOOGLE_CLOUD_PROJECT environment variable is required"
+    exit 1
+fi
+
+if [[ "$ENABLE_LOAD_BALANCER" == "true" && -z "$DOMAIN_NAME" ]]; then
+    log_error "DOMAIN_NAME is required when ENABLE_LOAD_BALANCER=true"
+    echo "  export DOMAIN_NAME=your-domain.example.com"
     exit 1
 fi
 
@@ -338,6 +349,173 @@ configure_pubsub_push() {
 }
 
 # =============================================================================
+# Configure Google Cloud Load Balancer
+# =============================================================================
+setup_load_balancer() {
+    if [[ "$ENABLE_LOAD_BALANCER" != "true" ]]; then
+        return
+    fi
+
+    log_info "Setting up Google Cloud Load Balancer..."
+
+    # -------------------------------------------------------------------------
+    # Create serverless NEGs for each Cloud Run service
+    # -------------------------------------------------------------------------
+    log_info "Creating serverless NEGs..."
+
+    if ! gcloud compute network-endpoint-groups describe "${LB_NAME}-agent-neg" \
+        --region="$REGION" --project="$PROJECT_ID" &>/dev/null; then
+        gcloud compute network-endpoint-groups create "${LB_NAME}-agent-neg" \
+            --region="$REGION" \
+            --network-endpoint-type=serverless \
+            --cloud-run-service="$SERVICE_NAME" \
+            --project="$PROJECT_ID"
+        log_info "NEG '${LB_NAME}-agent-neg' created"
+    else
+        log_info "NEG '${LB_NAME}-agent-neg' already exists"
+    fi
+
+    if ! gcloud compute network-endpoint-groups describe "${LB_NAME}-handler-neg" \
+        --region="$REGION" --project="$PROJECT_ID" &>/dev/null; then
+        gcloud compute network-endpoint-groups create "${LB_NAME}-handler-neg" \
+            --region="$REGION" \
+            --network-endpoint-type=serverless \
+            --cloud-run-service="$HANDLER_SERVICE_NAME" \
+            --project="$PROJECT_ID"
+        log_info "NEG '${LB_NAME}-handler-neg' created"
+    else
+        log_info "NEG '${LB_NAME}-handler-neg' already exists"
+    fi
+
+    # -------------------------------------------------------------------------
+    # Create backend services
+    # -------------------------------------------------------------------------
+    log_info "Creating backend services..."
+
+    if ! gcloud compute backend-services describe "${LB_NAME}-agent-backend" \
+        --global --project="$PROJECT_ID" &>/dev/null; then
+        gcloud compute backend-services create "${LB_NAME}-agent-backend" \
+            --global \
+            --project="$PROJECT_ID"
+        gcloud compute backend-services add-backend "${LB_NAME}-agent-backend" \
+            --global \
+            --network-endpoint-group="${LB_NAME}-agent-neg" \
+            --network-endpoint-group-region="$REGION" \
+            --project="$PROJECT_ID"
+        log_info "Backend service '${LB_NAME}-agent-backend' created"
+    else
+        log_info "Backend service '${LB_NAME}-agent-backend' already exists"
+    fi
+
+    if ! gcloud compute backend-services describe "${LB_NAME}-handler-backend" \
+        --global --project="$PROJECT_ID" &>/dev/null; then
+        gcloud compute backend-services create "${LB_NAME}-handler-backend" \
+            --global \
+            --project="$PROJECT_ID"
+        gcloud compute backend-services add-backend "${LB_NAME}-handler-backend" \
+            --global \
+            --network-endpoint-group="${LB_NAME}-handler-neg" \
+            --network-endpoint-group-region="$REGION" \
+            --project="$PROJECT_ID"
+        log_info "Backend service '${LB_NAME}-handler-backend' created"
+    else
+        log_info "Backend service '${LB_NAME}-handler-backend' already exists"
+    fi
+
+    # -------------------------------------------------------------------------
+    # Create URL map with path-based routing
+    # -------------------------------------------------------------------------
+    log_info "Creating URL map..."
+
+    if ! gcloud compute url-maps describe "${LB_NAME}-url-map" \
+        --global --project="$PROJECT_ID" &>/dev/null; then
+        # Default backend → agent service
+        gcloud compute url-maps create "${LB_NAME}-url-map" \
+            --default-service="${LB_NAME}-agent-backend" \
+            --global \
+            --project="$PROJECT_ID"
+        # Path rule: /dcr → marketplace handler
+        gcloud compute url-maps add-path-matcher "${LB_NAME}-url-map" \
+            --path-matcher-name=marketplace \
+            --default-service="${LB_NAME}-handler-backend" \
+            --path-rules="/dcr=${LB_NAME}-handler-backend" \
+            --global \
+            --project="$PROJECT_ID"
+        log_info "URL map '${LB_NAME}-url-map' created"
+    else
+        log_info "URL map '${LB_NAME}-url-map' already exists"
+    fi
+
+    # -------------------------------------------------------------------------
+    # Create HTTPS proxy with managed SSL certificate
+    # -------------------------------------------------------------------------
+    log_info "Creating HTTPS proxy..."
+
+    if ! gcloud compute target-https-proxies describe "${LB_NAME}-https-proxy" \
+        --global --project="$PROJECT_ID" &>/dev/null; then
+        gcloud compute target-https-proxies create "${LB_NAME}-https-proxy" \
+            --ssl-certificates="${LB_NAME}-cert" \
+            --url-map="${LB_NAME}-url-map" \
+            --global \
+            --project="$PROJECT_ID"
+        log_info "HTTPS proxy '${LB_NAME}-https-proxy' created"
+    else
+        log_info "HTTPS proxy '${LB_NAME}-https-proxy' already exists"
+    fi
+
+    # -------------------------------------------------------------------------
+    # Create global forwarding rule
+    # -------------------------------------------------------------------------
+    log_info "Creating forwarding rule..."
+
+    if ! gcloud compute forwarding-rules describe "${LB_NAME}-forwarding-rule" \
+        --global --project="$PROJECT_ID" &>/dev/null; then
+        gcloud compute forwarding-rules create "${LB_NAME}-forwarding-rule" \
+            --global \
+            --target-https-proxy="${LB_NAME}-https-proxy" \
+            --address="${LB_NAME}-ip" \
+            --ports=443 \
+            --project="$PROJECT_ID"
+        log_info "Forwarding rule '${LB_NAME}-forwarding-rule' created"
+    else
+        log_info "Forwarding rule '${LB_NAME}-forwarding-rule' already exists"
+    fi
+
+    # -------------------------------------------------------------------------
+    # Override Cloud Run ingress to internal-and-cloud-load-balancing
+    # -------------------------------------------------------------------------
+    log_info "Updating Cloud Run ingress to internal-and-cloud-load-balancing..."
+
+    gcloud run services update "$SERVICE_NAME" \
+        --region="$REGION" \
+        --project="$PROJECT_ID" \
+        --ingress=internal-and-cloud-load-balancing \
+        --quiet
+
+    gcloud run services update "$HANDLER_SERVICE_NAME" \
+        --region="$REGION" \
+        --project="$PROJECT_ID" \
+        --ingress=internal-and-cloud-load-balancing \
+        --quiet
+
+    log_info "Cloud Run ingress updated for both services"
+}
+
+update_service_ingress() {
+    if [[ "$ENABLE_LOAD_BALANCER" != "true" ]]; then
+        return
+    fi
+
+    local service_name="$1"
+    log_info "Updating ingress for $service_name to internal-and-cloud-load-balancing..."
+    gcloud run services update "$service_name" \
+        --region="$REGION" \
+        --project="$PROJECT_ID" \
+        --ingress=internal-and-cloud-load-balancing \
+        --quiet
+}
+
+# =============================================================================
 # Main deployment
 # =============================================================================
 
@@ -363,13 +541,16 @@ case "$DEPLOY_SERVICE" in
         deploy_handler
         configure_pubsub_push
         deploy_agent
+        setup_load_balancer
         ;;
     handler)
         deploy_handler
         configure_pubsub_push
+        update_service_ingress "$HANDLER_SERVICE_NAME"
         ;;
     agent)
         deploy_agent
+        update_service_ingress "$SERVICE_NAME"
         ;;
     *)
         log_error "Unknown service: $DEPLOY_SERVICE"
@@ -497,6 +678,37 @@ case "$DEPLOY_SERVICE" in
         echo "  curl \$(gcloud run services describe $SERVICE_NAME --region=$REGION --format='value(status.url)')/.well-known/agent-card.json"
         ;;
 esac
+
+# Show load balancer info if enabled
+if [[ "$ENABLE_LOAD_BALANCER" == "true" ]]; then
+    echo ""
+    log_info "=========================================="
+    log_info "Load Balancer"
+    log_info "=========================================="
+
+    LB_IP=$(gcloud compute addresses describe "${LB_NAME}-ip" \
+        --global --project="$PROJECT_ID" \
+        --format='value(address)' 2>/dev/null || echo "unknown")
+
+    CERT_STATUS=$(gcloud compute ssl-certificates describe "${LB_NAME}-cert" \
+        --global --project="$PROJECT_ID" \
+        --format='value(managed.status)' 2>/dev/null || echo "unknown")
+
+    echo ""
+    echo "  URL:         https://$DOMAIN_NAME"
+    echo "  Static IP:   $LB_IP"
+    echo "  SSL status:  $CERT_STATUS"
+    echo ""
+    echo "  Routing:"
+    echo "    /    → $SERVICE_NAME (agent)"
+    echo "    /dcr → $HANDLER_SERVICE_NAME (marketplace handler)"
+    echo ""
+    if [[ "$CERT_STATUS" != "ACTIVE" ]]; then
+        log_warn "SSL certificate is not yet active (status: $CERT_STATUS)"
+        log_warn "Ensure DNS A record points $DOMAIN_NAME → $LB_IP"
+        log_warn "Provisioning can take up to 60 minutes after DNS propagation."
+    fi
+fi
 
 echo ""
 echo "View logs:"

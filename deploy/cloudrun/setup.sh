@@ -51,10 +51,21 @@ PUBSUB_INVOKER_SA="${PUBSUB_INVOKER_NAME}@${PROJECT_ID}.iam.gserviceaccount.com"
 # Optional features
 ENABLE_MARKETPLACE="${ENABLE_MARKETPLACE:-true}"
 
+# Load balancer configuration
+ENABLE_LOAD_BALANCER="${ENABLE_LOAD_BALANCER:-false}"
+DOMAIN_NAME="${DOMAIN_NAME:-}"
+LB_NAME="${LB_NAME:-lightspeed-lb}"
+
 # Validate required variables
 if [[ -z "$PROJECT_ID" ]]; then
     log_error "GOOGLE_CLOUD_PROJECT environment variable is required"
     echo "  export GOOGLE_CLOUD_PROJECT=your-project-id"
+    exit 1
+fi
+
+if [[ "$ENABLE_LOAD_BALANCER" == "true" && -z "$DOMAIN_NAME" ]]; then
+    log_error "DOMAIN_NAME is required when ENABLE_LOAD_BALANCER=true"
+    echo "  export DOMAIN_NAME=your-domain.example.com"
     exit 1
 fi
 
@@ -66,6 +77,7 @@ log_info "Handler service: $HANDLER_SERVICE_NAME"
 log_info "DB instance: $DB_INSTANCE_NAME"
 log_info "Pub/Sub invoker SA: $PUBSUB_INVOKER_NAME"
 log_info "Marketplace integration: $ENABLE_MARKETPLACE"
+log_info "Load balancer: $ENABLE_LOAD_BALANCER"
 
 # =============================================================================
 # Step 1: Enable Required APIs
@@ -95,6 +107,11 @@ apis=(
     "redis.googleapis.com"
     "vpcaccess.googleapis.com"
 )
+
+# Add Compute Engine API when load balancer is enabled
+if [[ "$ENABLE_LOAD_BALANCER" == "true" ]]; then
+    apis+=("compute.googleapis.com")
+fi
 
 for api in "${apis[@]}"; do
     log_info "  Enabling $api..."
@@ -303,6 +320,42 @@ else
 fi
 
 # =============================================================================
+# Step 5: Set Up Load Balancer Resources (Optional)
+# =============================================================================
+if [[ "$ENABLE_LOAD_BALANCER" == "true" ]]; then
+    log_info "Setting up load balancer resources..."
+
+    # Reserve a global static IP address
+    if ! gcloud compute addresses describe "${LB_NAME}-ip" --global --project="$PROJECT_ID" &>/dev/null; then
+        gcloud compute addresses create "${LB_NAME}-ip" \
+            --global \
+            --project="$PROJECT_ID"
+        log_info "Static IP address '${LB_NAME}-ip' reserved"
+    else
+        log_info "Static IP address '${LB_NAME}-ip' already exists"
+    fi
+
+    LB_IP=$(gcloud compute addresses describe "${LB_NAME}-ip" \
+        --global \
+        --project="$PROJECT_ID" \
+        --format='value(address)')
+    log_info "Static IP address: $LB_IP"
+
+    # Create a Google-managed SSL certificate
+    if ! gcloud compute ssl-certificates describe "${LB_NAME}-cert" --global --project="$PROJECT_ID" &>/dev/null; then
+        gcloud compute ssl-certificates create "${LB_NAME}-cert" \
+            --domains="$DOMAIN_NAME" \
+            --global \
+            --project="$PROJECT_ID"
+        log_info "Managed SSL certificate '${LB_NAME}-cert' created for $DOMAIN_NAME"
+    else
+        log_info "Managed SSL certificate '${LB_NAME}-cert' already exists"
+    fi
+else
+    log_info "Skipping load balancer setup (ENABLE_LOAD_BALANCER=false)"
+fi
+
+# =============================================================================
 # Summary
 # =============================================================================
 echo ""
@@ -314,6 +367,16 @@ echo "Service accounts created:"
 echo "  Runtime SA:         $SERVICE_ACCOUNT"
 if [[ "$ENABLE_MARKETPLACE" == "true" ]]; then
     echo "  Pub/Sub Invoker SA: $PUBSUB_INVOKER_SA"
+fi
+if [[ "$ENABLE_LOAD_BALANCER" == "true" ]]; then
+    echo ""
+    echo "Load balancer resources:"
+    echo "  Static IP:    $LB_IP"
+    echo "  SSL cert:     ${LB_NAME}-cert (domain: $DOMAIN_NAME)"
+    echo ""
+    log_warn "Configure your DNS before deploying:"
+    echo "  Create an A record: $DOMAIN_NAME → $LB_IP"
+    echo "  SSL provisioning requires DNS to resolve to this IP."
 fi
 echo ""
 echo "Next steps:"

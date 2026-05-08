@@ -53,6 +53,10 @@ PUBSUB_INVOKER_SA="${PUBSUB_INVOKER_NAME}@${PROJECT_ID}.iam.gserviceaccount.com"
 PUBSUB_TOPIC="${PUBSUB_TOPIC:-marketplace-entitlements}"
 PUBSUB_SUBSCRIPTION="${PUBSUB_SUBSCRIPTION:-${PUBSUB_TOPIC}-sub}"
 
+# Load balancer configuration
+ENABLE_LOAD_BALANCER="${ENABLE_LOAD_BALANCER:-false}"
+LB_NAME="${LB_NAME:-lightspeed-lb}"
+
 # Parse arguments
 FORCE=false
 
@@ -80,6 +84,10 @@ fi
 log_warn "This will delete the following resources from project: $PROJECT_ID"
 echo ""
 echo "  - Cloud Run services: $SERVICE_NAME, $HANDLER_SERVICE_NAME"
+if [[ "$ENABLE_LOAD_BALANCER" == "true" ]]; then
+    echo "  - Load balancer: forwarding rule, HTTPS proxy, URL map, SSL cert,"
+    echo "                   backend services, NEGs, static IP (prefix: $LB_NAME)"
+fi
 echo "  - Pub/Sub topic: $PUBSUB_TOPIC"
 echo "  - Pub/Sub subscription: $PUBSUB_SUBSCRIPTION"
 echo "  - Secrets: redhat-sso-client-id, redhat-sso-client-secret, database-url,"
@@ -130,7 +138,104 @@ else
 fi
 
 # =============================================================================
-# Step 2: Delete Pub/Sub Resources
+# Step 2: Delete Load Balancer Resources (if enabled)
+# =============================================================================
+if [[ "$ENABLE_LOAD_BALANCER" == "true" ]]; then
+    log_info "Deleting load balancer resources (reverse order)..."
+
+    # Delete forwarding rule
+    if gcloud compute forwarding-rules describe "${LB_NAME}-forwarding-rule" \
+        --global --project="$PROJECT_ID" &>/dev/null; then
+        gcloud compute forwarding-rules delete "${LB_NAME}-forwarding-rule" \
+            --global --project="$PROJECT_ID" --quiet
+        log_info "Forwarding rule '${LB_NAME}-forwarding-rule' deleted"
+    else
+        log_info "Forwarding rule '${LB_NAME}-forwarding-rule' does not exist, skipping"
+    fi
+
+    # Delete HTTPS proxy
+    if gcloud compute target-https-proxies describe "${LB_NAME}-https-proxy" \
+        --global --project="$PROJECT_ID" &>/dev/null; then
+        gcloud compute target-https-proxies delete "${LB_NAME}-https-proxy" \
+            --global --project="$PROJECT_ID" --quiet
+        log_info "HTTPS proxy '${LB_NAME}-https-proxy' deleted"
+    else
+        log_info "HTTPS proxy '${LB_NAME}-https-proxy' does not exist, skipping"
+    fi
+
+    # Delete URL map
+    if gcloud compute url-maps describe "${LB_NAME}-url-map" \
+        --global --project="$PROJECT_ID" &>/dev/null; then
+        gcloud compute url-maps delete "${LB_NAME}-url-map" \
+            --global --project="$PROJECT_ID" --quiet
+        log_info "URL map '${LB_NAME}-url-map' deleted"
+    else
+        log_info "URL map '${LB_NAME}-url-map' does not exist, skipping"
+    fi
+
+    # Delete SSL certificate
+    if gcloud compute ssl-certificates describe "${LB_NAME}-cert" \
+        --global --project="$PROJECT_ID" &>/dev/null; then
+        gcloud compute ssl-certificates delete "${LB_NAME}-cert" \
+            --global --project="$PROJECT_ID" --quiet
+        log_info "SSL certificate '${LB_NAME}-cert' deleted"
+    else
+        log_info "SSL certificate '${LB_NAME}-cert' does not exist, skipping"
+    fi
+
+    # Delete backend services
+    if gcloud compute backend-services describe "${LB_NAME}-agent-backend" \
+        --global --project="$PROJECT_ID" &>/dev/null; then
+        gcloud compute backend-services delete "${LB_NAME}-agent-backend" \
+            --global --project="$PROJECT_ID" --quiet
+        log_info "Backend service '${LB_NAME}-agent-backend' deleted"
+    else
+        log_info "Backend service '${LB_NAME}-agent-backend' does not exist, skipping"
+    fi
+
+    if gcloud compute backend-services describe "${LB_NAME}-handler-backend" \
+        --global --project="$PROJECT_ID" &>/dev/null; then
+        gcloud compute backend-services delete "${LB_NAME}-handler-backend" \
+            --global --project="$PROJECT_ID" --quiet
+        log_info "Backend service '${LB_NAME}-handler-backend' deleted"
+    else
+        log_info "Backend service '${LB_NAME}-handler-backend' does not exist, skipping"
+    fi
+
+    # Delete serverless NEGs
+    if gcloud compute network-endpoint-groups describe "${LB_NAME}-agent-neg" \
+        --region="$REGION" --project="$PROJECT_ID" &>/dev/null; then
+        gcloud compute network-endpoint-groups delete "${LB_NAME}-agent-neg" \
+            --region="$REGION" --project="$PROJECT_ID" --quiet
+        log_info "NEG '${LB_NAME}-agent-neg' deleted"
+    else
+        log_info "NEG '${LB_NAME}-agent-neg' does not exist, skipping"
+    fi
+
+    if gcloud compute network-endpoint-groups describe "${LB_NAME}-handler-neg" \
+        --region="$REGION" --project="$PROJECT_ID" &>/dev/null; then
+        gcloud compute network-endpoint-groups delete "${LB_NAME}-handler-neg" \
+            --region="$REGION" --project="$PROJECT_ID" --quiet
+        log_info "NEG '${LB_NAME}-handler-neg' deleted"
+    else
+        log_info "NEG '${LB_NAME}-handler-neg' does not exist, skipping"
+    fi
+
+    # Delete static IP address
+    if gcloud compute addresses describe "${LB_NAME}-ip" \
+        --global --project="$PROJECT_ID" &>/dev/null; then
+        gcloud compute addresses delete "${LB_NAME}-ip" \
+            --global --project="$PROJECT_ID" --quiet
+        log_info "Static IP '${LB_NAME}-ip' deleted"
+    else
+        log_info "Static IP '${LB_NAME}-ip' does not exist, skipping"
+    fi
+else
+    log_info "Skipping load balancer cleanup (ENABLE_LOAD_BALANCER=false)"
+fi
+
+# =============================================================================
+# Step 3: Delete Pub/Sub Resources
 # =============================================================================
 log_info "Deleting Pub/Sub resources..."
 
@@ -157,7 +262,7 @@ else
 fi
 
 # =============================================================================
-# Step 3: Delete Secrets
+# Step 4: Delete Secrets
 # =============================================================================
 log_info "Deleting secrets from Secret Manager..."
 
@@ -184,7 +289,7 @@ for secret in "${secrets[@]}"; do
 done
 
 # =============================================================================
-# Step 4: Remove IAM Bindings and Delete Service Account
+# Step 5: Remove IAM Bindings and Delete Service Account
 # =============================================================================
 log_info "Removing service account IAM bindings..."
 
@@ -265,6 +370,9 @@ log_info "=========================================="
 echo ""
 echo "The following resources have been removed:"
 echo "  - Cloud Run services ($SERVICE_NAME, $HANDLER_SERVICE_NAME)"
+if [[ "$ENABLE_LOAD_BALANCER" == "true" ]]; then
+    echo "  - Load balancer resources (forwarding rule, proxy, URL map, cert, backends, NEGs, IP)"
+fi
 echo "  - Pub/Sub topic and subscription"
 echo "  - Secret Manager secrets"
 echo "  - Service accounts (runtime + Pub/Sub invoker) and IAM bindings"
