@@ -6,15 +6,17 @@ Deploy the Red Hat Lightspeed Agent for Google Cloud to Google Cloud Run for pro
 
 - [Architecture](#architecture)
 - [Service Accounts](#service-accounts)
+- [Load Balancer (Optional)](#load-balancer-optional)
 - [Prerequisites](#prerequisites)
 - [Quick Start](#quick-start)
   - [1. Set Environment Variables](#1-set-environment-variables)
   - [2. Run Setup Script](#2-run-setup-script)
   - [3. Set Up Cloud SQL Database](#3-set-up-cloud-sql-database)
   - [4. Redis Setup for Rate Limiting](#4-redis-setup-for-rate-limiting)
-  - [5. Configure Secrets](#5-configure-secrets)
-  - [6. Copy MCP Image to GCR](#6-copy-mcp-image-to-gcr)
-  - [7. Deploy](#7-deploy)
+  - [5. Configure Load Balancer (Optional)](#5-configure-load-balancer-optional)
+  - [6. Configure Secrets](#6-configure-secrets)
+  - [7. Copy MCP Image to GCR](#7-copy-mcp-image-to-gcr)
+  - [8. Deploy](#8-deploy)
 - [Service Configuration](#service-configuration)
   - [Agent Container](#agent-container)
   - [Rate Limiting (Redis)](#rate-limiting-redis)
@@ -47,7 +49,7 @@ Deploy the Red Hat Lightspeed Agent for Google Cloud to Google Cloud Run for pro
 
 ## Architecture
 
-The deployment consists of **two separate Cloud Run services** plus **Cloud Memorystore for Redis** (for rate limiting):
+The deployment consists of **two separate Cloud Run services** plus **Cloud Memorystore for Redis** (for rate limiting), with an optional **Google Cloud Load Balancer (GCLB)** for SSL termination, DDoS protection, and WAF:
 
 ```
                               Google Cloud Marketplace
@@ -58,8 +60,19 @@ The deployment consists of **two separate Cloud Run services** plus **Cloud Memo
       ┌──────────────────────┐                ┌──────────────────────────────────┐
       │  Pub/Sub (Events)    │                │  Gemini Enterprise (DCR)         │
       └──────────┬───────────┘                └──────────────────┬───────────────┘
+                 │ (internal)                                    │
                  │                                               │
-                 ▼                                               ▼
+                 │    ┌──────────────────────────────────────────┐│
+                 │    │  Google Cloud Load Balancer (Optional)   ││
+                 │    │  ─────────────────────────────────────   ││
+                 │    │  - SSL termination (managed cert)        ││
+                 │    │  - Cloud Armor (DDoS + WAF)              ││
+                 │    │  - Path-based routing:                   ││
+                 │    │      /    → Agent Service                ││
+                 │    │      /dcr → Marketplace Handler          ││
+                 │    └───────────┬──────────────────────────┬───┘│
+                 │                │                          │    │
+                 ▼                ▼                          ▼    ▼
 ┌─────────────────────────────────────────────────────────────────────────────────┐
 │                    Marketplace Handler Service (Port 8001)                      │
 │                    ───────────────────────────────────────                      │
@@ -91,6 +104,8 @@ The deployment consists of **two separate Cloud Run services** plus **Cloud Memo
                           │ (Insights APIs)  │
                           └──────────────────┘
 ```
+
+When `ENABLE_LOAD_BALANCER=true`, Cloud Run ingress is restricted to `internal-and-cloud-load-balancing`, meaning external traffic **must** go through the GCLB. Pub/Sub traffic is internal Google Cloud traffic and bypasses the load balancer automatically.
 
 ### Service Responsibilities
 
@@ -124,6 +139,98 @@ The deployment uses **two separate service accounts** following the principle of
 
 Both are created automatically by `setup.sh`. The Pub/Sub Invoker SA is only created when `ENABLE_MARKETPLACE=true` (the default).
 
+## Load Balancer (Optional)
+
+When `ENABLE_LOAD_BALANCER=true`, the deployment scripts create a **Google Cloud Load Balancer (GCLB)** in front of both Cloud Run services. This is optional — without it, services are accessed directly via their Cloud Run URLs.
+
+### What GCLB Provides
+
+- **SSL termination** with a Google-managed certificate for your custom domain
+- **DDoS protection** via Cloud Armor
+- **WAF capabilities** (Web Application Firewall)
+- **Single entry point** for all external traffic through one static IP address
+- **Path-based routing** to both services through a single domain
+
+### Path-Based Routing
+
+The GCLB URL map routes requests based on path:
+
+| Path | Backend | Description |
+|------|---------|-------------|
+| `/` (default) | Agent service | A2A protocol, health checks, agent card |
+| `/dcr` | Marketplace handler | DCR requests from Gemini Enterprise |
+
+Pub/Sub events are internal Google Cloud traffic and reach the marketplace handler directly, bypassing the load balancer.
+
+### Ingress Restriction
+
+When GCLB is enabled, `deploy.sh` automatically restricts Cloud Run ingress to `internal-and-cloud-load-balancing` on both services. This means:
+
+- External traffic **must** go through the GCLB (direct Cloud Run URLs are blocked from the internet)
+- Internal Google Cloud traffic (e.g., Pub/Sub) still reaches services directly
+- Health checks from the load balancer are allowed
+
+### Resources Created
+
+When `ENABLE_LOAD_BALANCER=true`, the scripts create the following resources (all prefixed with `LB_NAME`, default: `lightspeed-lb`):
+
+| Resource | Name | Description |
+|----------|------|-------------|
+| Global static IP | `{LB_NAME}-ip` | External IP address for DNS |
+| Serverless NEG (agent) | `{LB_NAME}-agent-neg` | Network endpoint group for agent service |
+| Serverless NEG (handler) | `{LB_NAME}-handler-neg` | Network endpoint group for marketplace handler |
+| Backend service (agent) | `{LB_NAME}-agent-backend` | Backend for agent NEG |
+| Backend service (handler) | `{LB_NAME}-handler-backend` | Backend for handler NEG |
+| URL map | `{LB_NAME}-url-map` | Path-based routing rules |
+| SSL certificate | `{LB_NAME}-cert` | Google-managed SSL certificate |
+| HTTPS target proxy | `{LB_NAME}-https-proxy` | Terminates SSL and forwards to URL map |
+| Global forwarding rule | `{LB_NAME}-forwarding-rule` | Maps static IP:443 to HTTPS proxy |
+
+### Configuration
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `ENABLE_LOAD_BALANCER` | `false` | Enable GCLB creation and Cloud Run ingress restriction |
+| `DOMAIN_NAME` | (required when LB enabled) | Domain name for the Google-managed SSL certificate (e.g., `agent.example.com`) |
+| `LB_NAME` | `lightspeed-lb` | Prefix for all load balancer resource names |
+
+### DNS Setup
+
+After `setup.sh` reserves the static IP, you must create a DNS A record pointing your domain to it:
+
+1. Get the static IP address:
+   ```bash
+   gcloud compute addresses describe ${LB_NAME:-lightspeed-lb}-ip \
+     --global \
+     --project=$GOOGLE_CLOUD_PROJECT \
+     --format='value(address)'
+   ```
+
+2. Create an A record in your DNS provider:
+   ```
+   agent.example.com.  A  <static-ip>
+   ```
+
+3. Verify DNS propagation:
+   ```bash
+   dig +short $DOMAIN_NAME
+   ```
+
+### SSL Certificate Provisioning
+
+Google-managed SSL certificates require the domain to resolve to the static IP before provisioning begins. Certificate provisioning typically takes **15 to 60 minutes** after DNS is correctly configured.
+
+Check certificate status:
+
+```bash
+gcloud compute ssl-certificates describe ${LB_NAME:-lightspeed-lb}-cert \
+  --global \
+  --project=$GOOGLE_CLOUD_PROJECT \
+  --format='value(managed.status)'
+```
+
+The certificate goes through these states: `PROVISIONING` → `ACTIVE`. HTTPS traffic will not work until the certificate reaches `ACTIVE` status.
+
 ## Prerequisites
 
 - [Google Cloud CLI](https://cloud.google.com/sdk/docs/install) installed and authenticated
@@ -153,6 +260,11 @@ export SERVICE_NAME="lightspeed-agent"
 
 # Optional: disable Pub/Sub marketplace integration
 export ENABLE_MARKETPLACE="false"
+
+# Optional: enable Google Cloud Load Balancer (GCLB)
+# export ENABLE_LOAD_BALANCER="true"
+# export DOMAIN_NAME="agent.example.com"  # Required when LB is enabled
+# export LB_NAME="lightspeed-lb"          # Default prefix for LB resources
 ```
 
 **Google Cloud Marketplace deployments:** If you are deploying with marketplace
@@ -209,6 +321,9 @@ The setup script enables required APIs, creates service accounts (runtime + Pub/
 | `PUBSUB_SUBSCRIPTION` | `${PUBSUB_TOPIC}-sub` | Pub/Sub subscription name. **Must** be set explicitly when `PUBSUB_TOPIC` is a fully-qualified path, since the default derivation produces an invalid name. |
 | `SERVICE_CONTROL_SERVICE_NAME` | - | Managed service name from the Producer Portal. **Required** for marketplace deployments — used for entitlement approval and product-level event filtering. |
 | `ENABLE_MARKETPLACE` | `true` | Create Pub/Sub invoker SA and topic for marketplace integration |
+| `ENABLE_LOAD_BALANCER` | `false` | Enable Google Cloud Load Balancer creation (see [Load Balancer](#load-balancer-optional)) |
+| `DOMAIN_NAME` | - | Domain name for the SSL certificate. **Required** when `ENABLE_LOAD_BALANCER=true`. |
+| `LB_NAME` | `lightspeed-lb` | Prefix for all load balancer resource names |
 
 ### 3. Set Up Cloud SQL Database
 
@@ -409,7 +524,36 @@ gcloud redis instances delete lightspeed-redis \
 - No downtime: Cloud Run rolls out the new revision alongside the old one. The old revision keeps using the previous `redis://` URL (pinned at deploy time) until it drains.
 - Rate limiting counters reset after the cutover (all sliding windows start fresh). This is harmless — users simply get a full quota again.
 
-### 5. Configure Secrets
+### 5. Configure Load Balancer (Optional)
+
+If you want SSL termination, DDoS protection, and a single entry point for both services, enable the Google Cloud Load Balancer. See [Load Balancer (Optional)](#load-balancer-optional) for details on what GCLB provides.
+
+**Step 1: Enable the load balancer and set your domain:**
+
+```bash
+export ENABLE_LOAD_BALANCER=true
+export DOMAIN_NAME="agent.example.com"  # Your custom domain
+# export LB_NAME="lightspeed-lb"        # Optional: change the resource name prefix
+```
+
+**Step 2: Run setup.sh** (if not already done — it creates the static IP and SSL certificate when `ENABLE_LOAD_BALANCER=true`):
+
+```bash
+./deploy/cloudrun/setup.sh
+```
+
+**Step 3: Get the static IP for DNS configuration:**
+
+```bash
+gcloud compute addresses describe ${LB_NAME:-lightspeed-lb}-ip \
+  --global \
+  --project=$GOOGLE_CLOUD_PROJECT \
+  --format='value(address)'
+```
+
+**Step 4: Configure your DNS A record** to point `DOMAIN_NAME` to the static IP address before deploying. The Google-managed SSL certificate requires the domain to resolve to the static IP before it can be provisioned (takes 15–60 minutes after DNS propagates).
+
+### 6. Configure Secrets
 
 Update the placeholder secrets with actual values:
 
@@ -450,7 +594,7 @@ echo -n "postgresql+asyncpg://sessions:$SESSION_DB_PASSWORD@/agent_sessions?host
 # The CA certificate is stored separately (see Redis Setup step 3).
 ```
 
-### 6. Copy MCP Image to GCR
+### 7. Copy MCP Image to GCR
 
 Cloud Run doesn't support Quay.io directly. Copy the MCP server image to GCR.
 
@@ -485,7 +629,7 @@ docker tag quay.io/redhat-services-prod/insights-management-tenant/insights-mcp/
 docker push gcr.io/$GOOGLE_CLOUD_PROJECT/red-hat-lightspeed-mcp:latest
 ```
 
-### 7. Deploy
+### 8. Deploy
 
 The agent's AgentCard advertises the DCR endpoints served by the
 marketplace-handler service. Because of this, the **handler must be
@@ -532,6 +676,17 @@ AGENT_URL=$(gcloud run services describe ${SERVICE_NAME:-lightspeed-agent} \
   --format='value(status.url)')
 curl -s $AGENT_URL/.well-known/agent.json | jq '.capabilities.extensions'
 ```
+
+**Load balancer:** When `ENABLE_LOAD_BALANCER=true`, `deploy.sh` automatically creates the GCLB resources (NEGs, backend services, URL map, HTTPS proxy, forwarding rule) and restricts Cloud Run ingress to `internal-and-cloud-load-balancing` on both services. After deployment, check the SSL certificate status:
+
+```bash
+gcloud compute ssl-certificates describe ${LB_NAME:-lightspeed-lb}-cert \
+  --global \
+  --project=$GOOGLE_CLOUD_PROJECT \
+  --format='value(managed.status)'
+```
+
+If the status is `PROVISIONING`, HTTPS traffic will not work yet — Google-managed certificates take 15–60 minutes to provision after DNS is correctly configured. HTTP traffic through the load balancer IP will work immediately.
 
 **Other examples:**
 
@@ -1950,6 +2105,66 @@ gcloud run services describe lightspeed-agent \
 2. **Container fails to start**: Check logs for missing environment variables
 3. **Database connection timeout**: Ensure Cloud SQL connection is configured
 
+### SSL Certificate Stuck in PROVISIONING
+
+Google-managed SSL certificates require the domain's DNS A record to point to the load balancer's static IP before provisioning can complete. If the certificate remains in `PROVISIONING` state:
+
+1. Verify the DNS A record is correctly configured:
+   ```bash
+   # Get the expected static IP
+   gcloud compute addresses describe ${LB_NAME:-lightspeed-lb}-ip \
+     --global --project=$GOOGLE_CLOUD_PROJECT --format='value(address)'
+
+   # Check what the domain resolves to
+   dig +short $DOMAIN_NAME
+   ```
+
+2. Ensure the domain resolves to the static IP. If not, update your DNS provider.
+
+3. Check the certificate status and domain status:
+   ```bash
+   gcloud compute ssl-certificates describe ${LB_NAME:-lightspeed-lb}-cert \
+     --global --project=$GOOGLE_CLOUD_PROJECT \
+     --format='yaml(managed.status,managed.domainStatus)'
+   ```
+
+4. Wait up to 60 minutes after DNS is correctly configured. Certificate provisioning is handled by Google and cannot be expedited.
+
+### 502 Errors After Enabling GCLB
+
+Backend services may take a few minutes to become healthy after GCLB is first created. If you see 502 errors:
+
+1. Verify the Cloud Run services are healthy:
+   ```bash
+   gcloud run services describe ${SERVICE_NAME:-lightspeed-agent} \
+     --region=$GOOGLE_CLOUD_LOCATION --project=$GOOGLE_CLOUD_PROJECT \
+     --format='value(status.conditions.status)'
+   ```
+
+2. Check that the serverless NEGs are correctly configured:
+   ```bash
+   gcloud compute network-endpoint-groups describe ${LB_NAME:-lightspeed-lb}-agent-neg \
+     --region=$GOOGLE_CLOUD_LOCATION --project=$GOOGLE_CLOUD_PROJECT
+   ```
+
+3. Wait 2–3 minutes for the backend services to register as healthy, then retry.
+
+### DCR Requests Failing with GCLB
+
+If DCR requests fail after enabling the load balancer, ensure the URL map routes `/dcr` to the marketplace handler backend:
+
+```bash
+gcloud compute url-maps describe ${LB_NAME:-lightspeed-lb}-url-map \
+  --project=$GOOGLE_CLOUD_PROJECT \
+  --format='yaml(pathMatchers)'
+```
+
+The path matcher should route `/dcr` to `{LB_NAME}-handler-backend`. If missing, redeploy with `ENABLE_LOAD_BALANCER=true`:
+
+```bash
+./deploy/cloudrun/deploy.sh --service all
+```
+
 ### Orders Stuck in Pending Status
 
 If marketplace subscriptions remain in `pending` status in the Google Cloud
@@ -2048,6 +2263,7 @@ This will delete:
 - Pub/Sub topic and subscription
 - Secret Manager secrets
 - Service accounts (runtime + Pub/Sub invoker) and IAM bindings
+- Load balancer resources (when `ENABLE_LOAD_BALANCER=true`): forwarding rule, HTTPS proxy, SSL certificate, URL map, backend services, NEGs, and static IP
 
 Use `--force` to skip the confirmation prompt:
 
