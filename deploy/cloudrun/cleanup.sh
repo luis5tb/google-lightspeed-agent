@@ -14,7 +14,7 @@
 #
 # Options:
 #   --force       Skip confirmation prompt
-#   --purge-data  Also delete CloudSQL instances and Redis data
+#   --purge-data  Also delete CloudSQL instances (lists Redis for manual cleanup)
 #
 # Prerequisites:
 #   - gcloud CLI installed and authenticated
@@ -93,6 +93,12 @@ echo "             session-database-url, gma-client-id, gma-client-secret, dcr-e
 echo "             rate-limit-redis-url"
 echo "  - Service accounts: $SERVICE_ACCOUNT"
 echo "                      $PUBSUB_INVOKER_SA"
+if [ "$PURGE_DATA" = true ]; then
+    echo ""
+    log_warn "DATA PURGE ENABLED — the following will also be PERMANENTLY deleted:"
+    echo "  - CloudSQL instances matching 'lightspeed' (IRREVERSIBLE DATA LOSS)"
+    echo "  - Redis instances will be listed for manual cleanup"
+fi
 echo ""
 
 # Confirmation prompt
@@ -262,6 +268,26 @@ else
 fi
 
 # =============================================================================
+# Step 5: Purge Data Resources (optional)
+# =============================================================================
+if [ "$PURGE_DATA" = true ]; then
+    echo ""
+    log_info "Purging data resources..."
+    # Delete CloudSQL instances
+    for instance in $(gcloud sql instances list --project="$PROJECT_ID" --filter="name~^lightspeed" --format="value(name)" 2>/dev/null); do
+        echo "Deleting CloudSQL instance: $instance"
+        if ! gcloud sql instances delete "$instance" --project="$PROJECT_ID" --quiet; then
+            log_warn "Failed to delete CloudSQL instance: $instance"
+        fi
+    done
+    # List Redis instances for manual cleanup
+    for instance in $(gcloud redis instances list --region="$REGION" --project="$PROJECT_ID" --format="value(name)" 2>/dev/null); do
+        echo "Note: Redis instance $instance must be deleted manually or via console"
+    done
+    log_info "Data purge complete."
+fi
+
+# =============================================================================
 # Summary
 # =============================================================================
 echo ""
@@ -274,26 +300,15 @@ echo "  - Cloud Run services ($SERVICE_NAME, $HANDLER_SERVICE_NAME)"
 echo "  - Pub/Sub topic and subscription"
 echo "  - Secret Manager secrets"
 echo "  - Service accounts (runtime + Pub/Sub invoker) and IAM bindings"
-echo ""
 if [ "$PURGE_DATA" = true ]; then
-    echo ""
-    log_info "Purging data resources..."
-    # Delete CloudSQL instances
-    for instance in $(gcloud sql instances list --project="$PROJECT_ID" --filter="name~lightspeed" --format="value(name)" 2>/dev/null); do
-        echo "Deleting CloudSQL instance: $instance"
-        gcloud sql instances delete "$instance" --project="$PROJECT_ID" --quiet || true
-    done
-    # Flush Redis data
-    for instance in $(gcloud redis instances list --region="$REGION" --project="$PROJECT_ID" --format="value(name)" 2>/dev/null); do
-        echo "Note: Redis instance $instance must be deleted manually or via console"
-    done
-    log_info "Data purge complete."
+    echo "  - CloudSQL instances matching 'lightspeed'"
 fi
+echo ""
 
 echo "Note: The following resources were NOT deleted (delete manually if needed):"
 if [ "$PURGE_DATA" != true ]; then
-echo "  - Cloud SQL instances (use --purge-data to delete)"
-echo "  - Cloud Memorystore Redis instances (use --purge-data to delete)"
+    echo "  - Cloud SQL instances (use --purge-data to delete)"
+    echo "  - Cloud Memorystore Redis instances (use --purge-data to delete)"
 fi
 echo "  - Container images in GCR/Artifact Registry"
 echo "  - VPC connectors"
