@@ -1,5 +1,6 @@
 """Application settings and configuration management."""
 
+import logging
 import os
 from functools import lru_cache
 from typing import Literal
@@ -386,6 +387,15 @@ class Settings(BaseSettings):
                 "SKIP_JWT_VALIDATION=true is not allowed in Cloud Run "
                 f"(K_SERVICE={os.getenv('K_SERVICE')}). "
                 "This setting is intended for local development only."
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _warn_audit_logging_disabled(self) -> "Settings":
+        if not self.audit_logging_enabled:
+            logging.getLogger(__name__).warning(
+                "AUDIT_LOGGING_ENABLED=false: PII fields will not be injected into "
+                "log records. Forensic traceability is reduced."
             )
         return self
 
