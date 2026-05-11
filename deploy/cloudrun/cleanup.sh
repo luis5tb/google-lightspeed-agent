@@ -53,6 +53,13 @@ PUBSUB_INVOKER_SA="${PUBSUB_INVOKER_NAME}@${PROJECT_ID}.iam.gserviceaccount.com"
 PUBSUB_TOPIC="${PUBSUB_TOPIC:-marketplace-entitlements}"
 PUBSUB_SUBSCRIPTION="${PUBSUB_SUBSCRIPTION:-${PUBSUB_TOPIC}-sub}"
 
+# Per-service load balancer configuration
+ENABLE_LB_AGENT="${ENABLE_LB_AGENT:-false}"
+ENABLE_LB_HANDLER="${ENABLE_LB_HANDLER:-false}"
+ENABLE_CLOUD_ARMOR_AGENT="${ENABLE_CLOUD_ARMOR_AGENT:-false}"
+ENABLE_CLOUD_ARMOR_HANDLER="${ENABLE_CLOUD_ARMOR_HANDLER:-false}"
+LB_NAME="${LB_NAME:-lightspeed-lb}"
+
 # Parse arguments
 FORCE=false
 
@@ -80,6 +87,20 @@ fi
 log_warn "This will delete the following resources from project: $PROJECT_ID"
 echo ""
 echo "  - Cloud Run services: $SERVICE_NAME, $HANDLER_SERVICE_NAME"
+if [[ "$ENABLE_LB_AGENT" == "true" ]]; then
+    echo "  - Agent LB: forwarding rule, HTTPS proxy, URL map, SSL cert,"
+    echo "              backend service, NEG, static IP (prefix: ${LB_NAME}-agent)"
+fi
+if [[ "$ENABLE_CLOUD_ARMOR_AGENT" == "true" ]]; then
+    echo "  - Agent Cloud Armor: security policy and WAF rules (${LB_NAME}-agent-security-policy)"
+fi
+if [[ "$ENABLE_LB_HANDLER" == "true" ]]; then
+    echo "  - Handler LB: forwarding rule, HTTPS proxy, URL map, SSL cert,"
+    echo "                backend service, NEG, static IP (prefix: ${LB_NAME}-handler)"
+fi
+if [[ "$ENABLE_CLOUD_ARMOR_HANDLER" == "true" ]]; then
+    echo "  - Handler Cloud Armor: security policy and WAF rules (${LB_NAME}-handler-security-policy)"
+fi
 echo "  - Pub/Sub topic: $PUBSUB_TOPIC"
 echo "  - Pub/Sub subscription: $PUBSUB_SUBSCRIPTION"
 echo "  - Secrets: redhat-sso-client-id, redhat-sso-client-secret, database-url,"
@@ -130,7 +151,124 @@ else
 fi
 
 # =============================================================================
-# Step 2: Delete Pub/Sub Resources
+# Step 2: Delete Load Balancer Resources (per-service)
+# =============================================================================
+# Reusable function to clean up all LB resources for a single service.
+# Usage: cleanup_service_lb <service_label>
+cleanup_service_lb() {
+    local service_label="$1"
+
+    local rule_name="${LB_NAME}-${service_label}-forwarding-rule"
+    local proxy_name="${LB_NAME}-${service_label}-https-proxy"
+    local url_map_name="${LB_NAME}-${service_label}-url-map"
+    local cert_name="${LB_NAME}-${service_label}-cert"
+    local policy_name="${LB_NAME}-${service_label}-security-policy"
+    local backend_name="${LB_NAME}-${service_label}-backend"
+    local neg_name="${LB_NAME}-${service_label}-neg"
+    local ip_name="${LB_NAME}-${service_label}-ip"
+
+    log_info "Deleting ${service_label} load balancer resources (reverse order)..."
+
+    # Delete forwarding rule
+    if gcloud compute forwarding-rules describe "$rule_name" \
+        --global --project="$PROJECT_ID" &>/dev/null; then
+        gcloud compute forwarding-rules delete "$rule_name" \
+            --global --project="$PROJECT_ID" --quiet
+        log_info "Forwarding rule '$rule_name' deleted"
+    else
+        log_info "Forwarding rule '$rule_name' does not exist, skipping"
+    fi
+
+    # Delete HTTPS proxy
+    if gcloud compute target-https-proxies describe "$proxy_name" \
+        --global --project="$PROJECT_ID" &>/dev/null; then
+        gcloud compute target-https-proxies delete "$proxy_name" \
+            --global --project="$PROJECT_ID" --quiet
+        log_info "HTTPS proxy '$proxy_name' deleted"
+    else
+        log_info "HTTPS proxy '$proxy_name' does not exist, skipping"
+    fi
+
+    # Delete URL map
+    if gcloud compute url-maps describe "$url_map_name" \
+        --global --project="$PROJECT_ID" &>/dev/null; then
+        gcloud compute url-maps delete "$url_map_name" \
+            --global --project="$PROJECT_ID" --quiet
+        log_info "URL map '$url_map_name' deleted"
+    else
+        log_info "URL map '$url_map_name' does not exist, skipping"
+    fi
+
+    # Delete SSL certificate
+    if gcloud compute ssl-certificates describe "$cert_name" \
+        --global --project="$PROJECT_ID" &>/dev/null; then
+        gcloud compute ssl-certificates delete "$cert_name" \
+            --global --project="$PROJECT_ID" --quiet
+        log_info "SSL certificate '$cert_name' deleted"
+    else
+        log_info "SSL certificate '$cert_name' does not exist, skipping"
+    fi
+
+    # Detach any security policy from the backend before deleting it.
+    # Always attempt this regardless of the ENABLE_CLOUD_ARMOR_* flag — the
+    # user may have deployed with Cloud Armor but forgotten to set the flag
+    # during cleanup.
+    gcloud compute backend-services update "$backend_name" \
+        --security-policy="" --global --project="$PROJECT_ID" 2>/dev/null || true
+
+    # Delete the Cloud Armor security policy if it exists
+    if gcloud compute security-policies describe "$policy_name" \
+        --global --project="$PROJECT_ID" &>/dev/null; then
+        gcloud compute security-policies delete "$policy_name" \
+            --global --project="$PROJECT_ID" --quiet
+        log_info "Security policy '$policy_name' deleted"
+    fi
+
+    # Delete backend service
+    if gcloud compute backend-services describe "$backend_name" \
+        --global --project="$PROJECT_ID" &>/dev/null; then
+        gcloud compute backend-services delete "$backend_name" \
+            --global --project="$PROJECT_ID" --quiet
+        log_info "Backend service '$backend_name' deleted"
+    else
+        log_info "Backend service '$backend_name' does not exist, skipping"
+    fi
+
+    # Delete serverless NEG
+    if gcloud compute network-endpoint-groups describe "$neg_name" \
+        --region="$REGION" --project="$PROJECT_ID" &>/dev/null; then
+        gcloud compute network-endpoint-groups delete "$neg_name" \
+            --region="$REGION" --project="$PROJECT_ID" --quiet
+        log_info "NEG '$neg_name' deleted"
+    else
+        log_info "NEG '$neg_name' does not exist, skipping"
+    fi
+
+    # Delete static IP address
+    if gcloud compute addresses describe "$ip_name" \
+        --global --project="$PROJECT_ID" &>/dev/null; then
+        gcloud compute addresses delete "$ip_name" \
+            --global --project="$PROJECT_ID" --quiet
+        log_info "Static IP '$ip_name' deleted"
+    else
+        log_info "Static IP '$ip_name' does not exist, skipping"
+    fi
+}
+
+if [[ "$ENABLE_LB_AGENT" == "true" ]]; then
+    cleanup_service_lb "agent"
+fi
+
+if [[ "$ENABLE_LB_HANDLER" == "true" ]]; then
+    cleanup_service_lb "handler"
+fi
+
+if [[ "$ENABLE_LB_AGENT" != "true" && "$ENABLE_LB_HANDLER" != "true" ]]; then
+    log_info "Skipping load balancer cleanup (no per-service LBs enabled)"
+fi
+
+# =============================================================================
+# Step 3: Delete Pub/Sub Resources
 # =============================================================================
 log_info "Deleting Pub/Sub resources..."
 
@@ -157,7 +295,7 @@ else
 fi
 
 # =============================================================================
-# Step 3: Delete Secrets
+# Step 4: Delete Secrets
 # =============================================================================
 log_info "Deleting secrets from Secret Manager..."
 
@@ -184,7 +322,7 @@ for secret in "${secrets[@]}"; do
 done
 
 # =============================================================================
-# Step 4: Remove IAM Bindings and Delete Service Account
+# Step 5: Remove IAM Bindings and Delete Service Account
 # =============================================================================
 log_info "Removing service account IAM bindings..."
 
@@ -265,6 +403,18 @@ log_info "=========================================="
 echo ""
 echo "The following resources have been removed:"
 echo "  - Cloud Run services ($SERVICE_NAME, $HANDLER_SERVICE_NAME)"
+if [[ "$ENABLE_LB_AGENT" == "true" ]]; then
+    echo "  - Agent LB resources (forwarding rule, proxy, URL map, cert, backend, NEG, IP)"
+fi
+if [[ "$ENABLE_CLOUD_ARMOR_AGENT" == "true" ]]; then
+    echo "  - Agent Cloud Armor security policy and WAF rules"
+fi
+if [[ "$ENABLE_LB_HANDLER" == "true" ]]; then
+    echo "  - Handler LB resources (forwarding rule, proxy, URL map, cert, backend, NEG, IP)"
+fi
+if [[ "$ENABLE_CLOUD_ARMOR_HANDLER" == "true" ]]; then
+    echo "  - Handler Cloud Armor security policy and WAF rules"
+fi
 echo "  - Pub/Sub topic and subscription"
 echo "  - Secret Manager secrets"
 echo "  - Service accounts (runtime + Pub/Sub invoker) and IAM bindings"
