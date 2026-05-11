@@ -40,12 +40,13 @@ python -m pytest tests/ -v --cov=src/lightspeed_agent --cov-report=term-missing
 
 ### Dependency Management
 
-Lock files (`requirements-agent.txt`, `requirements-handler.txt`) pin exact versions with cryptographic hashes for reproducible builds.
+Lock files (`requirements-agent.txt`, `requirements-handler.txt`, `requirements-dev.txt`) pin exact versions with cryptographic hashes for reproducible builds.
 
 ```bash
-make lock                              # Regenerate both lock files (always run before committing)
+make lock                              # Regenerate all lock files (always run before committing)
 make lock-agent                        # Regenerate agent lock file only
 make lock-handler                      # Regenerate marketplace handler lock file only
+make lock-dev                          # Regenerate dev lock file only
 ```
 
 **Workflow:**

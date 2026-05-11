@@ -1,7 +1,7 @@
 # Red Hat Lightspeed Agent for Google Cloud - Makefile
 # Common development and deployment commands
 
-.PHONY: help build build-agent build-marketplace run stop logs logs-mcp clean test lint dev check-env lock lock-agent lock-handler lock-check
+.PHONY: help build build-agent build-marketplace run stop logs logs-mcp clean test lint dev check-env lock lock-agent lock-handler lock-dev lock-check
 
 # Default target
 help:
@@ -16,6 +16,7 @@ help:
 	@echo "  make lock         - Regenerate all lock files (run after changing pyproject.toml)"
 	@echo "  make lock-agent   - Regenerate agent lock file only"
 	@echo "  make lock-handler - Regenerate marketplace handler lock file only"
+	@echo "  make lock-dev     - Regenerate dev lock file only"
 	@echo "  make lock-check   - Verify lock files are in sync (used by CI)"
 	@echo ""
 	@echo "Container (Podman):"
@@ -59,7 +60,7 @@ lint:
 # Dependency Management
 # =============================================================================
 
-lock: lock-agent lock-handler
+lock: lock-agent lock-handler lock-dev
 
 lock-agent:
 	@echo "Regenerating agent lock file..."
@@ -73,6 +74,12 @@ lock-handler:
 		--output-file=requirements-handler.txt pyproject.toml
 	@echo "✓ requirements-handler.txt updated"
 
+lock-dev:
+	@echo "Regenerating dev lock file..."
+	source .venv/bin/activate && uv pip compile --generate-hashes --python-version=3.12 --python-platform=linux \
+		--extra dev --output-file=requirements-dev.txt pyproject.toml
+	@echo "✓ requirements-dev.txt updated"
+
 lock-check:
 	@echo "Checking if lock files are in sync with pyproject.toml..."
 	@source .venv/bin/activate && uv pip compile --generate-hashes --python-version=3.12 --python-platform=linux \
@@ -85,6 +92,11 @@ lock-check:
 	@diff <(tail -n +3 requirements-handler.txt) <(tail -n +3 /tmp/requirements-handler-check.txt) || \
 		(echo "ERROR: requirements-handler.txt is out of sync. Run 'make lock' to update." && rm -f /tmp/requirements-handler-check.txt && exit 1)
 	@rm -f /tmp/requirements-handler-check.txt
+	@source .venv/bin/activate && uv pip compile --generate-hashes --python-version=3.12 --python-platform=linux \
+		--extra dev --output-file=/tmp/requirements-dev-check.txt pyproject.toml
+	@diff <(tail -n +3 requirements-dev.txt) <(tail -n +3 /tmp/requirements-dev-check.txt) || \
+		(echo "ERROR: requirements-dev.txt is out of sync. Run 'make lock' to update." && rm -f /tmp/requirements-dev-check.txt && exit 1)
+	@rm -f /tmp/requirements-dev-check.txt
 	@echo "✓ Lock files are in sync"
 
 # =============================================================================
