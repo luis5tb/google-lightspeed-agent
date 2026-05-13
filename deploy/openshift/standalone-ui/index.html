@@ -95,15 +95,25 @@
         <span class="step-status" id="step2-status"></span>
       </div>
       <div class="step-body">
-        <div class="form-group">
-          <label for="input-client-id">Client ID</label>
-          <input type="text" id="input-client-id" readonly>
+        <p class="description">Log in with your Red Hat account to obtain an access token via the authorization code flow.</p>
+
+        <div class="sub-section">
+          <h3>Step A: Log In</h3>
+          <p class="description">Open the URL below in your browser and log in with your Red Hat account. After login you will be redirected &mdash; copy the <code>code</code> parameter from the URL bar before the page closes.</p>
+          <div class="curl-box">
+            <pre id="auth-url"></pre>
+            <button class="btn btn-copy" data-copy="auth-url" title="Copy URL">Copy</button>
+          </div>
         </div>
-        <div class="form-group">
-          <label for="input-client-secret">Client Secret</label>
-          <input type="password" id="input-client-secret" readonly>
+
+        <div class="sub-section">
+          <h3>Step B: Exchange Code for Token</h3>
+          <div class="form-group">
+            <label for="input-auth-code">Authorization Code</label>
+            <input type="text" id="input-auth-code" placeholder="Paste the code from the redirect URL">
+          </div>
+          <button id="btn-exchange-code" class="btn btn-primary">Generate Token Exchange Command</button>
         </div>
-        <button id="btn-get-token" class="btn btn-primary">Get Access Token</button>
 
         <div id="token-error" class="error-box" hidden></div>
 

@@ -245,9 +245,7 @@
       setStepCompleted(step1, $("#step1-status"));
       $("#reset-section").hidden = false;
       enableStep(step2);
-
-      $("#input-client-id").value = data.client_id;
-      $("#input-client-secret").value = data.client_secret;
+      showAuthUrl();
     } catch (err) {
       showError(errorEl, "DCR failed: " + err.message);
     } finally {
@@ -301,72 +299,49 @@
     btn.textContent = "Reset";
   }
 
-  // --- Step 2: Get Access Token ---
+  // --- Step 2: Get Access Token (Authorization Code Flow) ---
 
-  function buildCurlCommand() {
-    const tokenUrl =
+  function buildAuthUrl() {
+    var base = config.ssoIssuerUrl.replace(/\/+$/, "");
+    return (
+      base +
+      "/protocol/openid-connect/auth?" +
+      "client_id=" + encodeURIComponent(state.clientId) +
+      "&response_type=code" +
+      "&scope=" + encodeURIComponent("api.console api.ocm")
+    );
+  }
+
+  function showAuthUrl() {
+    var el = $("#auth-url");
+    if (el) el.textContent = buildAuthUrl();
+  }
+
+  function buildCurlCommand(code) {
+    var tokenUrl =
       config.ssoIssuerUrl.replace(/\/+$/, "") + "/protocol/openid-connect/token";
     return (
       "curl -s -X POST '" +
       tokenUrl +
       "' \\\n" +
-      "  -H 'Content-Type: application/x-www-form-urlencoded' \\\n" +
-      "  -d 'grant_type=client_credentials" +
-      "&client_id=" +
-      encodeURIComponent(state.clientId) +
-      "&client_secret=" +
-      encodeURIComponent(state.clientSecret) +
-      "&scope=api.console'"
+      "  --data-urlencode 'grant_type=authorization_code' \\\n" +
+      "  --data-urlencode 'client_id=" + state.clientId + "' \\\n" +
+      "  --data-urlencode 'client_secret=" + state.clientSecret + "' \\\n" +
+      "  --data-urlencode 'code=" + code + "'"
     );
   }
 
-  async function getAccessToken() {
-    const btn = $("#btn-get-token");
-    const errorEl = "#token-error";
-    hideError(errorEl);
-    $("#token-cors-fallback").hidden = true;
-    $("#token-result").hidden = true;
-    btn.disabled = true;
-    btn.textContent = "Requesting...";
-
-    const tokenUrl =
-      config.ssoIssuerUrl.replace(/\/+$/, "") + "/protocol/openid-connect/token";
-
-    try {
-      const params = new URLSearchParams({
-        grant_type: "client_credentials",
-        client_id: state.clientId,
-        client_secret: state.clientSecret,
-        scope: "api.console",
-      });
-
-      const resp = await fetch(tokenUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: params.toString(),
-      });
-
-      if (!resp.ok) {
-        const body = await resp.text();
-        throw new Error("HTTP " + resp.status + ": " + body);
-      }
-
-      const data = await resp.json();
-      applyToken(data.access_token, data.expires_in);
-    } catch (err) {
-      if (err instanceof TypeError && err.message.toLowerCase().includes("fetch")) {
-        // Network/CORS error — show fallback
-        $("#curl-command").textContent = buildCurlCommand();
-        $("#token-cors-fallback").hidden = false;
-      } else {
-        showError(errorEl, "Token request failed: " + err.message);
-        $("#curl-command").textContent = buildCurlCommand();
-        $("#token-cors-fallback").hidden = false;
-      }
-    } finally {
-      btn.disabled = false;
-      btn.textContent = "Get Access Token";
+  function exchangeCode() {
+    var errorEl = "#token-error";
+    var code = $("#input-auth-code").value.trim();
+    if (!code) {
+      showError(errorEl, "Please paste the authorization code from the redirect URL.");
+      return;
     }
+    hideError(errorEl);
+    $("#token-result").hidden = true;
+    $("#curl-command").textContent = buildCurlCommand(code);
+    $("#token-cors-fallback").hidden = false;
   }
 
   function applyToken(token, expiresIn) {
@@ -830,7 +805,7 @@
   $("#btn-create-order").addEventListener("click", createOrder);
   $("#btn-register").addEventListener("click", registerClient);
   $("#btn-reset").addEventListener("click", resetRegistration);
-  $("#btn-get-token").addEventListener("click", getAccessToken);
+  $("#btn-exchange-code").addEventListener("click", exchangeCode);
   $("#btn-use-manual-token").addEventListener("click", useManualToken);
   $("#btn-send").addEventListener("click", sendMessage);
 

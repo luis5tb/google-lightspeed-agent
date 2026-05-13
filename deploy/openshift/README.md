@@ -445,10 +445,34 @@ The interface guides you through the full order lifecycle:
    endpoint using the Account ID and Order ID from step 1. The returned
    `client_id` and `client_secret` are displayed with copy buttons.
 
-3. **Get Access Token** — Credentials from step 2 are pre-filled. Click
-   **Get Token** to perform a client credentials grant against Red Hat SSO. If
-   CORS blocks the request, a `curl` command is shown instead — run it and
-   paste the token back.
+3. **Get Access Token** — The UI uses the authorization code flow:
+
+   **a.** Copy the authorization URL displayed in Step A and open it in your
+   browser. Log in with your Red Hat account.
+
+   **b.** After login, SSO redirects to the registered redirect URI with a
+   `code` parameter in the URL. Copy the `code` value from the URL bar.
+
+   > **Redirect URI workaround:** The registered redirect URI
+   > (`vertexaisearch.cloud.google.com/oauth-redirect`) will consume the
+   > authorization code before you can copy it. To prevent this, temporarily
+   > block the domain by adding it to `/etc/hosts`:
+   >
+   > ```bash
+   > # Block the redirect page from consuming the code
+   > echo "127.0.0.1 vertexaisearch.cloud.google.com" | sudo tee -a /etc/hosts
+   >
+   > # After testing, remove the entry
+   > sudo sed -i '/vertexaisearch.cloud.google.com/d' /etc/hosts
+   > ```
+   >
+   > With the block in place, the browser will show a connection error after
+   > login, but the `code` parameter will be visible in the URL bar.
+
+   **c.** Paste the code into the UI and click **Generate Token Exchange
+   Command**. Copy the displayed `curl` command, run it in your terminal,
+   and paste the resulting `access_token` (or the full JSON response) back
+   into the UI.
 
 4. **A2A Client** — The token from step 3 is pre-filled. Type a message and
    click **Send** to send a JSON-RPC 2.0 A2A request to the agent.
@@ -518,6 +542,34 @@ The MCP server runs as a sidecar container in the agent pod.
 | `google.httpRetry.maxDelay` | Max retry delay (seconds) | `60.0` |
 | `google.httpRetry.expBase` | Exponential backoff base | `2.0` |
 | `google.httpRetry.jitter` | Retry jitter (seconds) | `1.0` |
+
+### LLM Provider (Alternative Models via LiteLLM)
+
+| Value | Description | Default |
+|---|---|---|
+| `llm.provider` | `"gemini"` (default) or `"litellm"` for alternative providers | `"gemini"` |
+| `llm.model` | Model name in `provider/model` format (e.g., `"openai/my-model"`) | `""` |
+| `llm.apiBase` | Custom API endpoint URL for self-hosted models | `""` |
+| `secrets.llmApiKey` | API key for non-Google LLM providers | `""` |
+
+To use a self-hosted model (e.g., vLLM or text-generation-inference on OpenShift AI), set:
+
+```yaml
+llm:
+  provider: "litellm"
+  model: "openai/your-model-name"
+  apiBase: "https://your-model.apps.ocp.example.com/v1"
+
+secrets:
+  llmApiKey: "your-api-key"
+```
+
+The `openai/` prefix tells LiteLLM to use the OpenAI-compatible chat completions protocol, which is the standard API exposed by vLLM, text-generation-inference, and most model serving frameworks.
+
+> **Notes:**
+> - Gemini HTTP retry settings (`google.httpRetry.*`) do not apply to `litellm` providers.
+> - MCP tools work with all model providers.
+> - See [Configuration — LLM Provider](../../docs/configuration.md#llm-provider) for all available settings.
 
 ### Authentication
 
@@ -756,9 +808,9 @@ the correct service name (`lightspeed-agent-postgresql` for sessions,
 **Health check failing**: Check agent logs for startup errors (missing secrets,
 unreachable database/Redis).
 
-**Standalone UI shows CORS error on token request**: Red Hat SSO may not allow
-CORS from the UI origin. Use the displayed `curl` command to get the token
-manually and paste it into the UI.
+**Standalone UI shows CORS error on token exchange**: Red Hat SSO may not allow
+CORS from the UI origin. Use the displayed `curl` command to exchange the
+authorization code for a token manually and paste it into the UI.
 
 ## Cleanup
 
