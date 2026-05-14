@@ -179,7 +179,7 @@
     hideError(errorEl);
 
     try {
-      const url = config.agentUrl.replace(/\/+$/, "") + "/.well-known/agent.json";
+      const url = "/api/agent/.well-known/agent.json";
       const resp = await fetch(url);
       if (!resp.ok) throw new Error("HTTP " + resp.status + ": " + resp.statusText);
 
@@ -321,7 +321,7 @@
     var tokenUrl =
       config.ssoIssuerUrl.replace(/\/+$/, "") + "/protocol/openid-connect/token";
     return (
-      "curl -s -X POST '" +
+      "curl -sk -X POST '" +
       tokenUrl +
       "' \\\n" +
       "  --data-urlencode 'grant_type=authorization_code' \\\n" +
@@ -748,7 +748,7 @@
     btn.disabled = true;
 
     try {
-      var url = config.agentUrl.replace(/\/+$/, "") + "/";
+      var url = "/api/agent/";
       var resp = await fetch(url, {
         method: "POST",
         headers: {

@@ -35,6 +35,8 @@ spec:
               value: {{ .Values.sso.issuer | quote }}
             - name: REDIRECT_URIS
               value: {{ .Values.standaloneUI.redirectUris | quote }}
+            - name: AGENT_INTERNAL_URL
+              value: {{ printf "http://%s:%d" (include "lightspeed-agent.fullname" .) (int .Values.agent.port) | quote }}
             - name: HANDLER_INTERNAL_URL
               value: {{ printf "http://%s:%d" (include "lightspeed-agent.handlerServiceName" .) (int .Values.handler.port) | quote }}
           resources:

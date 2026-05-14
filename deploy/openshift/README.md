@@ -260,9 +260,14 @@ helm upgrade lightspeed-agent deploy/openshift/ \
 
 ```bash
 oc get pods -n lightspeed-agent
+
+# Health check via internal probe port
+AGENT_POD=$(oc get pod -n lightspeed-agent -l app.kubernetes.io/component=agent -o jsonpath='{.items[0].metadata.name}')
+oc exec -n lightspeed-agent "${AGENT_POD}" -c agent -- curl -s http://localhost:8002/health
+
+# Agent card via route
 AGENT_HOST=$(oc get route lightspeed-agent -n lightspeed-agent -o jsonpath='{.spec.host}')
-curl -s https://${AGENT_HOST}/health
-curl -s https://${AGENT_HOST}/.well-known/agent.json | python -m json.tool
+curl -sk https://${AGENT_HOST}/.well-known/agent.json | python -m json.tool
 ```
 
 ## Deployment — Standalone Mode
@@ -417,8 +422,16 @@ Then open http://localhost:8080 in your browser.
 oc get pods -n lightspeed-agent
 # Expect: agent, handler, UI, marketplace-postgresql, redis pods
 
+# Health checks via internal probe ports
+AGENT_POD=$(oc get pod -n lightspeed-agent -l app.kubernetes.io/component=agent -o jsonpath='{.items[0].metadata.name}')
+oc exec -n lightspeed-agent "${AGENT_POD}" -c agent -- curl -s http://localhost:8002/health
+
+HANDLER_POD=$(oc get pod -n lightspeed-agent -l app.kubernetes.io/component=handler -o jsonpath='{.items[0].metadata.name}')
+oc exec -n lightspeed-agent "${HANDLER_POD}" -- curl -s http://localhost:8003/health
+
+# Agent card via route
 AGENT_HOST=$(oc get route lightspeed-agent -n lightspeed-agent -o jsonpath='{.spec.host}')
-curl -s https://${AGENT_HOST}/.well-known/agent.json | python -m json.tool
+curl -sk https://${AGENT_HOST}/.well-known/agent.json | python -m json.tool
 ```
 
 ### Understanding `skip_dcr_jwt_validation`
