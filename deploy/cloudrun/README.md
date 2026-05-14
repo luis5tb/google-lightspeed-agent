@@ -46,6 +46,7 @@ Deploy the Red Hat Lightspeed Agent for Google Cloud to Google Cloud Run for pro
 - [Audit Logging](#audit-logging)
 - [Monitoring](#monitoring)
 - [Troubleshooting](#troubleshooting)
+  - [DCR Requests Not Reaching Marketplace Handler](#dcr-requests-not-reaching-marketplace-handler)
 - [Cleanup / Teardown](#cleanup--teardown)
 
 ## Architecture
@@ -2272,6 +2273,113 @@ Backend services may take a few minutes to become healthy after a GCLB is first 
    ```
 
 3. Wait 2–3 minutes for the backend services to register as healthy, then retry.
+
+### DCR Requests Not Reaching Marketplace Handler
+
+If DCR requests from Gemini Enterprise fail with no logs on the marketplace
+handler (but Pub/Sub events work fine), the most likely cause is a Cloud Run
+ingress restriction without a corresponding GCLB.
+
+**Background:** When Cloud Run ingress is set to `internal-and-cloud-load-balancing`,
+only internal Google Cloud traffic (e.g., Pub/Sub push) and traffic through a
+Google Cloud Load Balancer (GCLB) are allowed. Direct external traffic — including
+DCR requests from Gemini Enterprise — is blocked at the Cloud Run ingress level
+before it reaches the application. This is why no logs appear.
+
+**Diagnosis:**
+
+```bash
+# Check the handler's ingress setting
+gcloud run services describe ${HANDLER_SERVICE_NAME:-marketplace-handler} \
+  --region=$GOOGLE_CLOUD_LOCATION \
+  --project=$GOOGLE_CLOUD_PROJECT \
+  --format='value(metadata.annotations."run.googleapis.com/ingress")'
+# If this shows "internal-and-cloud-load-balancing", external DCR traffic is blocked
+# unless a GCLB is in front of the handler.
+
+# Check if a GCLB exists for the handler
+gcloud compute backend-services list \
+  --project=$GOOGLE_CLOUD_PROJECT \
+  --filter="name~handler" \
+  --format='table(name, backends.group)'
+# If empty, no GCLB is configured.
+
+# Check what URL the AgentCard advertises for DCR
+AGENT_URL=$(gcloud run services describe ${SERVICE_NAME:-lightspeed-agent} \
+  --region=$GOOGLE_CLOUD_LOCATION \
+  --project=$GOOGLE_CLOUD_PROJECT \
+  --format='value(status.url)')
+curl -s $AGENT_URL/.well-known/agent.json | \
+  jq '.capabilities.extensions[] | select(.uri | contains("dcr"))'
+# The target_url must point to the GCLB domain, NOT the Cloud Run URL.
+```
+
+**Fix — Add a GCLB to an existing deployment:**
+
+This adds a Google Cloud Load Balancer in front of the marketplace handler
+so external DCR traffic from Gemini Enterprise is routed through the GCLB
+and accepted by Cloud Run.
+
+```bash
+# 1. Set GCLB environment variables
+export ENABLE_LB_HANDLER=true
+export HANDLER_DOMAIN_NAME="dcr.example.com"  # Replace with your handler domain
+
+# Optional: also enable agent LB
+# export ENABLE_LB_AGENT=true
+# export AGENT_DOMAIN_NAME="agent.example.com"
+
+# 2. Run setup.sh to create the static IP and SSL certificate
+./deploy/cloudrun/setup.sh
+
+# 3. Get the static IP for DNS configuration
+gcloud compute addresses describe ${LB_NAME:-lightspeed-lb}-handler-ip \
+  --global \
+  --project=$GOOGLE_CLOUD_PROJECT \
+  --format='value(address)'
+
+# 4. Create a DNS A record in your DNS provider:
+#    dcr.example.com.  A  <handler-static-ip>
+
+# 5. Verify DNS propagation
+dig +short $HANDLER_DOMAIN_NAME
+
+# 6. Deploy with LB enabled
+#    This creates the GCLB, updates the handler's ingress, and sets
+#    MARKETPLACE_HANDLER_URL on the agent to point to the GCLB domain.
+./deploy/cloudrun/deploy.sh --service all
+
+# 7. Wait for SSL certificate provisioning (typically 15-60 minutes)
+gcloud compute ssl-certificates describe ${LB_NAME:-lightspeed-lb}-handler-cert \
+  --global \
+  --project=$GOOGLE_CLOUD_PROJECT \
+  --format='value(managed.status)'
+# Must show ACTIVE before HTTPS traffic works through the GCLB.
+```
+
+**Verify the fix:**
+
+```bash
+# AgentCard should show the GCLB domain in the DCR target_url
+curl -s $AGENT_URL/.well-known/agent.json | \
+  jq '.capabilities.extensions[] | select(.uri | contains("dcr"))'
+# Expected: "target_url": "https://dcr.example.com/dcr"
+
+# Health check through the GCLB (once SSL cert is ACTIVE)
+curl -s https://$HANDLER_DOMAIN_NAME/health
+```
+
+**Alternative — Update MARKETPLACE_HANDLER_URL without full redeployment:**
+
+If the GCLB is already set up but the AgentCard still points to the Cloud Run
+URL, update just the agent's environment variable:
+
+```bash
+gcloud run services update ${SERVICE_NAME:-lightspeed-agent} \
+  --region=$GOOGLE_CLOUD_LOCATION \
+  --project=$GOOGLE_CLOUD_PROJECT \
+  --update-env-vars="MARKETPLACE_HANDLER_URL=https://${HANDLER_DOMAIN_NAME}"
+```
 
 ### DCR Requests Failing with GCLB
 
