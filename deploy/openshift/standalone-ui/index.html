@@ -42,26 +42,49 @@
         </div>
 
         <div class="sub-section">
-          <h3>Order Provisioning</h3>
-          <p class="description">Create a marketplace order to provision an entitlement.</p>
-          <button id="btn-create-order" class="btn btn-primary">Create Order</button>
-          <div id="order-error" class="error-box" hidden></div>
-          <div id="order-result" hidden>
-            <div class="credential-row">
-              <label>Order ID</label>
-              <div class="credential-value">
-                <code id="order-id"></code>
-                <button class="btn btn-copy" data-copy="order-id" title="Copy to clipboard">Copy</button>
+          <h3>Order &amp; Credentials</h3>
+          <div class="order-mode-toggle">
+            <button id="btn-mode-create" class="btn-toggle active">Create New</button>
+            <button id="btn-mode-existing" class="btn-toggle">Use Existing</button>
+          </div>
+
+          <div id="order-create-mode">
+            <p class="description">Create a marketplace order and register an OAuth client.</p>
+            <button id="btn-create-order" class="btn btn-primary">Create Order</button>
+            <div id="order-error" class="error-box" hidden></div>
+            <div id="order-result" hidden>
+              <div class="credential-row">
+                <label>Order ID</label>
+                <div class="credential-value">
+                  <code id="order-id"></code>
+                  <button class="btn btn-copy" data-copy="order-id" title="Copy to clipboard">Copy</button>
+                </div>
               </div>
             </div>
+            <div id="dcr-section">
+              <button id="btn-register" class="btn btn-primary" disabled>Register Client</button>
+              <div id="dcr-error" class="error-box" hidden></div>
+            </div>
           </div>
-        </div>
 
-        <div class="sub-section">
-          <h3>Dynamic Client Registration</h3>
-          <p class="description">Register an OAuth client with the marketplace handler to obtain credentials.</p>
-          <button id="btn-register" class="btn btn-primary" disabled>Register Client</button>
-          <div id="dcr-error" class="error-box" hidden></div>
+          <div id="order-existing-mode" hidden>
+            <p class="description">Enter credentials from a previous session to skip provisioning.</p>
+            <div class="form-group">
+              <label for="input-existing-order-id">Order ID</label>
+              <input type="text" id="input-existing-order-id" placeholder="Paste the order ID">
+            </div>
+            <div class="form-group">
+              <label for="input-existing-client-id">Client ID</label>
+              <input type="text" id="input-existing-client-id" placeholder="Paste the client ID">
+            </div>
+            <div class="form-group">
+              <label for="input-existing-client-secret">Client Secret</label>
+              <input type="text" id="input-existing-client-secret" placeholder="Paste the client secret">
+            </div>
+            <button id="btn-use-existing" class="btn btn-primary">Use Credentials</button>
+            <div id="existing-error" class="error-box" hidden></div>
+          </div>
+
           <div id="dcr-result" hidden>
             <div class="credential-row">
               <label>Client ID</label>

@@ -232,6 +232,42 @@ footer {
   background: var(--rh-red-dark);
 }
 
+/* Order mode toggle */
+.order-mode-toggle {
+  display: flex;
+  gap: 0;
+  margin-bottom: 1rem;
+  border: 1px solid var(--rh-gray-200);
+  border-radius: var(--radius);
+  overflow: hidden;
+  width: fit-content;
+}
+
+.btn-toggle {
+  padding: 0.45rem 1.1rem;
+  border: none;
+  background: var(--rh-white);
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--rh-gray-600);
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.15s, color 0.15s;
+}
+
+.btn-toggle:not(:last-child) {
+  border-right: 1px solid var(--rh-gray-200);
+}
+
+.btn-toggle.active {
+  background: var(--rh-red);
+  color: var(--rh-white);
+}
+
+.btn-toggle:hover:not(.active) {
+  background: var(--rh-gray-100);
+}
+
 .reset-section {
   margin-top: 1rem;
   padding-top: 1rem;

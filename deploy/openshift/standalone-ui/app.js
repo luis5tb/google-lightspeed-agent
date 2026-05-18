@@ -115,6 +115,54 @@
     return headerB64 + "." + payloadB64 + "." + base64UrlEncode(sig);
   }
 
+  // --- Step 1: Order mode toggle ---
+
+  function setOrderMode(mode) {
+    var createMode = $("#order-create-mode");
+    var existingMode = $("#order-existing-mode");
+    var btnCreate = $("#btn-mode-create");
+    var btnExisting = $("#btn-mode-existing");
+
+    if (mode === "existing") {
+      createMode.hidden = true;
+      existingMode.hidden = false;
+      btnCreate.classList.remove("active");
+      btnExisting.classList.add("active");
+    } else {
+      createMode.hidden = false;
+      existingMode.hidden = true;
+      btnCreate.classList.add("active");
+      btnExisting.classList.remove("active");
+    }
+  }
+
+  function useExistingCredentials() {
+    var orderId = $("#input-existing-order-id").value.trim();
+    var clientId = $("#input-existing-client-id").value.trim();
+    var clientSecret = $("#input-existing-client-secret").value.trim();
+    var errorEl = "#existing-error";
+    hideError(errorEl);
+
+    if (!orderId || !clientId || !clientSecret) {
+      showError(errorEl, "All three fields are required.");
+      return;
+    }
+
+    state.orderId = orderId;
+    state.accountId = "existing";
+    state.clientId = clientId;
+    state.clientSecret = clientSecret;
+
+    $("#client-id").textContent = clientId;
+    $("#client-secret").textContent = clientSecret;
+    $("#dcr-result").hidden = false;
+
+    setStepCompleted(step1, $("#step1-status"));
+    $("#reset-section").hidden = false;
+    enableStep(step2);
+    showAuthUrl();
+  }
+
   // --- Step 1: Order Provisioning & DCR ---
 
   async function sendPubSubEvent(eventType, orderId, accountId) {
@@ -278,9 +326,13 @@
     state.messageId = 0;
 
     // Reset UI
+    setOrderMode("create");
     $("#order-result").hidden = true;
     $("#dcr-result").hidden = true;
     $("#btn-register").disabled = true;
+    $("#input-existing-order-id").value = "";
+    $("#input-existing-client-id").value = "";
+    $("#input-existing-client-secret").value = "";
     step1.classList.remove("completed");
     step1.classList.add("active");
     $("#step1-status").textContent = "";
@@ -802,8 +854,11 @@
 
   // --- Event listeners ---
 
+  $("#btn-mode-create").addEventListener("click", function () { setOrderMode("create"); });
+  $("#btn-mode-existing").addEventListener("click", function () { setOrderMode("existing"); });
   $("#btn-create-order").addEventListener("click", createOrder);
   $("#btn-register").addEventListener("click", registerClient);
+  $("#btn-use-existing").addEventListener("click", useExistingCredentials);
   $("#btn-reset").addEventListener("click", resetRegistration);
   $("#btn-exchange-code").addEventListener("click", exchangeCode);
   $("#btn-use-manual-token").addEventListener("click", useManualToken);
