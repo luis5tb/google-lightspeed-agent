@@ -60,6 +60,34 @@ class TestUsageTrackingPlugin:
         repo.increment_usage.assert_not_called()
 
     @pytest.mark.asyncio
+    async def test_before_run_passes_none_client_id_when_missing(self):
+        """Pass client_id=None when order exists but client_id is absent."""
+        repo = MagicMock()
+        repo.increment_usage = AsyncMock()
+        original_get_repo = usage_plugin.get_usage_repository
+        original_get_order = usage_plugin.get_request_order_id
+        original_get_client = usage_plugin.get_request_client_id
+        usage_plugin.get_usage_repository = lambda: repo
+        usage_plugin.get_request_order_id = lambda: "order-dev"
+        usage_plugin.get_request_client_id = lambda: None
+        try:
+            plugin = usage_plugin.UsageTrackingPlugin()
+            await plugin.before_run_callback(invocation_context=None)
+        finally:
+            usage_plugin.get_usage_repository = original_get_repo
+            usage_plugin.get_request_order_id = original_get_order
+            usage_plugin.get_request_client_id = original_get_client
+
+        repo.increment_usage.assert_awaited_once_with(
+            order_id="order-dev",
+            client_id=None,
+            request_count=1,
+            input_tokens=0,
+            output_tokens=0,
+            tool_calls=0,
+        )
+
+    @pytest.mark.asyncio
     async def test_after_model_persists_input_output_tokens(self):
         """Persist LLM token counts for a valid order."""
         repo = MagicMock()

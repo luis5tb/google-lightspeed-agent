@@ -219,6 +219,7 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
                 _request_order_id.set(order_id)
             _request_user_id.set("dev-user")
             _request_org_id.set("dev-org")
+            _request_client_id.set("dev-client")
             logger.debug("Extracted Bearer token for pass-through (validation skipped)")
 
     async def _resolve_and_validate_order(self, *, client_id: str) -> str | None:
