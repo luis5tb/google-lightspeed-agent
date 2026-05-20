@@ -93,6 +93,7 @@ MCP_READ_ONLY=true
 | `AGENT_DESCRIPTION` | Red Hat Lightspeed Agent for Google Cloud | Agent description |
 | `AGENT_HOST` | `0.0.0.0` | Server bind address |
 | `AGENT_PORT` | `8000` | Server port |
+| `SKILLS_DIR` | - | Path to external ADK AI Skills directory. When set, skills from this directory are loaded alongside the bundled defaults; external skills with the same name override bundled ones. Useful for mounting deployment-specific skills via ConfigMap or volume. |
 
 **Example:**
 
@@ -101,6 +102,7 @@ AGENT_PROVIDER_URL=https://lightspeed-agent.example.com
 AGENT_NAME=lightspeed_agent
 AGENT_HOST=0.0.0.0
 AGENT_PORT=8000
+SKILLS_DIR=/opt/agent-skills  # Optional: load custom skills from this directory
 ```
 
 ### Database
