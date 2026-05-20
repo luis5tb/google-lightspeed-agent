@@ -51,7 +51,7 @@ def _sync_session_from_reloaded(session: Session, reloaded: Session) -> None:
         session._storage_update_marker = marker  # type: ignore[attr-defined,unused-ignore]
 
 
-class RetryingDatabaseSessionService(DatabaseSessionService):  # type: ignore[misc]
+class RetryingDatabaseSessionService(DatabaseSessionService):  # type: ignore[misc,unused-ignore]
     """DatabaseSessionService that retries on stale-session errors.
 
     All methods except ``append_event`` are inherited unchanged.
@@ -67,7 +67,7 @@ class RetryingDatabaseSessionService(DatabaseSessionService):  # type: ignore[mi
 
         for attempt in range(1, self._max_retries + 1):
             try:
-                return await super().append_event(session, event)  # type: ignore[no-any-return]
+                return await super().append_event(session, event)  # type: ignore[no-any-return,unused-ignore]
             except ValueError as exc:
                 if not _is_stale_session_error(exc):
                     raise

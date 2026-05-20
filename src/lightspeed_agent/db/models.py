@@ -23,30 +23,6 @@ from lightspeed_agent.db.base import Base
 StringList = ARRAY(String).with_variant(JSON, "sqlite")
 
 
-class MarketplaceAccountModel(Base):
-    """ORM model for marketplace accounts."""
-
-    __tablename__ = "marketplace_accounts"
-
-    id: Mapped[str] = mapped_column(String(255), primary_key=True)
-    provider_id: Mapped[str] = mapped_column(String(255), nullable=False)
-    state: Mapped[str] = mapped_column(String(50), nullable=False, default="pending")
-    created_at: Mapped[datetime] = mapped_column(
-        TIMESTAMP(timezone=True),
-        server_default=func.now(),
-    )
-    updated_at: Mapped[datetime] = mapped_column(
-        TIMESTAMP(timezone=True),
-        server_default=func.now(),
-        onupdate=func.now(),
-    )
-    metadata_: Mapped[dict[str, Any]] = mapped_column(
-        "metadata",
-        JSON,
-        default=dict,
-    )
-
-
 class MarketplaceEntitlementModel(Base):
     """ORM model for marketplace entitlements (orders)."""
 

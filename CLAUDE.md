@@ -38,6 +38,44 @@ To run with coverage:
 python -m pytest tests/ -v --cov=src/lightspeed_agent --cov-report=term-missing
 ```
 
+### Dependency Management
+
+Lock files (`requirements-agent.txt`, `requirements-handler.txt`, `requirements-dev.txt`) pin exact versions with cryptographic hashes for reproducible builds.
+
+```bash
+make lock                              # Regenerate all lock files (always run before committing)
+make lock-agent                        # Regenerate agent lock file only
+make lock-handler                      # Regenerate marketplace handler lock file only
+make lock-dev                          # Regenerate dev lock file only
+```
+
+**Workflow:**
+1. Edit `pyproject.toml` (add/update dependencies)
+2. Run `make lock` to regenerate lock files
+3. Review the changes in `requirements-*.txt`
+4. Commit both `pyproject.toml` and lock files together
+
+**Note:** `make lock` is safe to run anytime - if nothing changed, it regenerates identical files.
+
+**Fixing CVEs in transitive dependencies:**
+
+If a transitive dependency has a CVE, you cannot manually edit lock files. Instead:
+
+1. Add the transitive dependency as a direct dependency in `pyproject.toml` with the safe version constraint
+2. Run `make lock` to regenerate lock files
+3. Commit both files
+
+Example:
+```toml
+# In pyproject.toml dependencies section:
+dependencies = [
+    # ... existing deps ...
+    "pydantic-core>=2.41.6",  # CVE fix: force safe version
+]
+```
+
+Then run `make lock` and commit.
+
 ### Linting & Type Checking
 ```bash
 make lint                              # Run both ruff and mypy
@@ -68,13 +106,13 @@ make cve-scan                          # Scan for CVEs with Trivy
 
 ### Before Pushing
 
-Always run lint and tests before pushing commits:
+Always regenerate lock files, run lint and tests before pushing commits:
 
 ```bash
-make lint && make test
+make lock && make lint && make test
 ```
 
-CI blocks merge on lint/test failures — catching issues locally saves round-trip time.
+CI blocks merge on lint/test/lock-file failures — catching issues locally saves round-trip time.
 
 ## Architecture
 
@@ -89,7 +127,7 @@ The system runs as two separate FastAPI services with separate concerns:
 ### Database Isolation
 
 Two separate PostgreSQL databases (security boundary):
-- **Marketplace DB** (`DATABASE_URL`) — accounts, entitlements, DCR clients, usage records. Shared by both services.
+- **Marketplace DB** (`DATABASE_URL`) — entitlements, DCR clients, usage records. Shared by both services.
 - **Session DB** (`SESSION_DATABASE_URL`) — ADK conversation sessions. Agent-only.
 
 Both fall back to SQLite for development. ORM models are in `src/lightspeed_agent/db/models.py`.
@@ -157,7 +195,7 @@ src/lightspeed_agent/
 ├── auth/                   # JWT validation middleware + token introspection
 ├── config/                 # Pydantic BaseSettings (all env vars, validation)
 ├── core/agent.py           # LlmAgent creation with MCP tools
-├── db/                     # SQLAlchemy ORM (4 models, async engine)
+├── db/                     # SQLAlchemy ORM (3 models, async engine)
 ├── dcr/                    # Dynamic Client Registration service
 ├── marketplace/            # Marketplace handler (separate service entry point)
 ├── metering/               # Usage record repository + backfill

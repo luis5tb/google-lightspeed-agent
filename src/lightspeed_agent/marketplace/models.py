@@ -37,14 +37,6 @@ class ProcurementEventType(StrEnum):
     ENTITLEMENT_OFFER_ENDED = "ENTITLEMENT_OFFER_ENDED"
 
 
-class AccountState(StrEnum):
-    """Account states in the procurement lifecycle."""
-
-    PENDING = "pending"
-    ACTIVE = "active"
-    DELETED = "deleted"
-
-
 class EntitlementState(StrEnum):
     """Entitlement states in the procurement lifecycle."""
 
@@ -147,29 +139,6 @@ class ProcurementEvent(BaseModel):
         description="Account information (for account events)",
     )
 
-
-
-class Account(BaseModel):
-    """Stored account record."""
-
-    id: str = Field(..., description="Account ID (Procurement Account ID)")
-    state: AccountState = Field(
-        default=AccountState.PENDING,
-        description="Account state",
-    )
-    provider_id: str = Field(..., description="Provider ID")
-    created_at: datetime = Field(
-        default_factory=datetime.utcnow,
-        description="Creation timestamp",
-    )
-    updated_at: datetime = Field(
-        default_factory=datetime.utcnow,
-        description="Last update timestamp",
-    )
-    metadata: dict[str, Any] = Field(
-        default_factory=dict,
-        description="Additional metadata",
-    )
 
 
 class Entitlement(BaseModel):

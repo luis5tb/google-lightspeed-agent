@@ -35,6 +35,9 @@ _request_user_id: contextvars.ContextVar[str | None] = contextvars.ContextVar(
 _request_org_id: contextvars.ContextVar[str | None] = contextvars.ContextVar(
     "_request_org_id", default=None
 )
+_request_client_id: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "_request_client_id", default=None
+)
 _request_id: contextvars.ContextVar[str | None] = contextvars.ContextVar(
     "_request_id", default=None
 )
@@ -58,6 +61,11 @@ def get_request_user_id() -> str | None:
 def get_request_org_id() -> str | None:
     """Return the current request's org_id, or None."""
     return _request_org_id.get()
+
+
+def get_request_client_id() -> str | None:
+    """Return the current request's client_id, or None."""
+    return _request_client_id.get()
 
 
 def get_request_id() -> str | None:
@@ -105,6 +113,7 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
         _request_order_id.set(None)
         _request_user_id.set(None)
         _request_org_id.set(None)
+        _request_client_id.set(None)
         _request_id.set(str(uuid.uuid4()))
         path = request.url.path
         method = request.method
@@ -150,6 +159,7 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
             _request_order_id.set(order_id)
             _request_user_id.set(user.user_id)
             _request_org_id.set(user.org_id)
+            _request_client_id.set(user.client_id)
             logger.info(
                 "Authenticated request "
                 "(event_type=request_authenticated, user_id=%s, org_id=%s, "
@@ -209,6 +219,7 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
                 _request_order_id.set(order_id)
             _request_user_id.set("dev-user")
             _request_org_id.set("dev-org")
+            _request_client_id.set("dev-client")
             logger.debug("Extracted Bearer token for pass-through (validation skipped)")
 
     async def _resolve_and_validate_order(self, *, client_id: str) -> str | None:
