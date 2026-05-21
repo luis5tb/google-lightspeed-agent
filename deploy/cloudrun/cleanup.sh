@@ -53,11 +53,7 @@ PUBSUB_INVOKER_SA="${PUBSUB_INVOKER_NAME}@${PROJECT_ID}.iam.gserviceaccount.com"
 PUBSUB_TOPIC="${PUBSUB_TOPIC:-marketplace-entitlements}"
 PUBSUB_SUBSCRIPTION="${PUBSUB_SUBSCRIPTION:-${PUBSUB_TOPIC}-sub}"
 
-# Per-service load balancer configuration
-ENABLE_LB_AGENT="${ENABLE_LB_AGENT:-false}"
-ENABLE_LB_HANDLER="${ENABLE_LB_HANDLER:-false}"
-ENABLE_CLOUD_ARMOR_AGENT="${ENABLE_CLOUD_ARMOR_AGENT:-false}"
-ENABLE_CLOUD_ARMOR_HANDLER="${ENABLE_CLOUD_ARMOR_HANDLER:-false}"
+# Load balancer resource name prefix (used by cleanup_service_lb)
 LB_NAME="${LB_NAME:-lightspeed-lb}"
 
 # Parse arguments
@@ -87,20 +83,8 @@ fi
 log_warn "This will delete the following resources from project: $PROJECT_ID"
 echo ""
 echo "  - Cloud Run services: $SERVICE_NAME, $HANDLER_SERVICE_NAME"
-if [[ "$ENABLE_LB_AGENT" == "true" ]]; then
-    echo "  - Agent LB: forwarding rule, HTTPS proxy, URL map, SSL cert,"
-    echo "              backend service, NEG, static IP (prefix: ${LB_NAME}-agent)"
-fi
-if [[ "$ENABLE_CLOUD_ARMOR_AGENT" == "true" ]]; then
-    echo "  - Agent Cloud Armor: security policy and WAF rules (${LB_NAME}-agent-security-policy)"
-fi
-if [[ "$ENABLE_LB_HANDLER" == "true" ]]; then
-    echo "  - Handler LB: forwarding rule, HTTPS proxy, URL map, SSL cert,"
-    echo "                backend service, NEG, static IP (prefix: ${LB_NAME}-handler)"
-fi
-if [[ "$ENABLE_CLOUD_ARMOR_HANDLER" == "true" ]]; then
-    echo "  - Handler Cloud Armor: security policy and WAF rules (${LB_NAME}-handler-security-policy)"
-fi
+echo "  - Load balancer resources (if any): forwarding rules, HTTPS proxies,"
+echo "    URL maps, SSL certs, backend services, NEGs, static IPs, Cloud Armor policies"
 echo "  - Pub/Sub topic: $PUBSUB_TOPIC"
 echo "  - Pub/Sub subscription: $PUBSUB_SUBSCRIPTION"
 echo "  - Secrets: redhat-sso-client-id, redhat-sso-client-secret, database-url,"
@@ -255,17 +239,9 @@ cleanup_service_lb() {
     fi
 }
 
-if [[ "$ENABLE_LB_AGENT" == "true" ]]; then
-    cleanup_service_lb "agent"
-fi
-
-if [[ "$ENABLE_LB_HANDLER" == "true" ]]; then
-    cleanup_service_lb "handler"
-fi
-
-if [[ "$ENABLE_LB_AGENT" != "true" && "$ENABLE_LB_HANDLER" != "true" ]]; then
-    log_info "Skipping load balancer cleanup (no per-service LBs enabled)"
-fi
+log_info "Cleaning up load balancer resources (if any)..."
+cleanup_service_lb "agent"
+cleanup_service_lb "handler"
 
 # =============================================================================
 # Step 3: Delete Pub/Sub Resources
@@ -403,18 +379,7 @@ log_info "=========================================="
 echo ""
 echo "The following resources have been removed:"
 echo "  - Cloud Run services ($SERVICE_NAME, $HANDLER_SERVICE_NAME)"
-if [[ "$ENABLE_LB_AGENT" == "true" ]]; then
-    echo "  - Agent LB resources (forwarding rule, proxy, URL map, cert, backend, NEG, IP)"
-fi
-if [[ "$ENABLE_CLOUD_ARMOR_AGENT" == "true" ]]; then
-    echo "  - Agent Cloud Armor security policy and WAF rules"
-fi
-if [[ "$ENABLE_LB_HANDLER" == "true" ]]; then
-    echo "  - Handler LB resources (forwarding rule, proxy, URL map, cert, backend, NEG, IP)"
-fi
-if [[ "$ENABLE_CLOUD_ARMOR_HANDLER" == "true" ]]; then
-    echo "  - Handler Cloud Armor security policy and WAF rules"
-fi
+echo "  - Load balancer resources (if any existed)"
 echo "  - Pub/Sub topic and subscription"
 echo "  - Secret Manager secrets"
 echo "  - Service accounts (runtime + Pub/Sub invoker) and IAM bindings"

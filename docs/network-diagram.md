@@ -54,7 +54,8 @@ graph TB
     end
 
     %% === INGRESS (External → Services) ===
-    %% With GCLB: external traffic goes through LBs on :443
+    %% Without GCLB: CLIENT connects directly to AGENT :8000 and MKTPLACE :8001
+    %% With GCLB (shown below): external traffic goes through LBs on :443
     CLIENT -- "HTTPS :443<br/>POST / (A2A JSON-RPC)<br/>Bearer JWT" --> AGENT_LB
     CLIENT -- "HTTPS :443<br/>GET /.well-known/agent.json" --> AGENT_LB
     CLIENT -- "HTTPS :443<br/>POST /dcr" --> HANDLER_LB

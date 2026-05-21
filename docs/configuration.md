@@ -221,7 +221,7 @@ See [Rate Limiting](rate-limiting.md) for details on the sliding window algorith
 
 ### Load Balancer (Cloud Run)
 
-Optional per-service Google Cloud Load Balancers provide SSL termination, DDoS protection, and Cloud Armor WAF. See [Cloud Run deployment](../deploy/cloudrun/README.md#load-balancer-optional) for full details.
+Optional per-service Google Cloud Load Balancers (GCLB) provide SSL termination, DDoS protection, and Cloud Armor WAF. See [Cloud Run deployment](../deploy/cloudrun/README.md#load-balancer-optional) for full details.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
@@ -233,7 +233,7 @@ Optional per-service Google Cloud Load Balancers provide SSL termination, DDoS p
 | `ENABLE_CLOUD_ARMOR_HANDLER` | `false` | Enable Cloud Armor WAF for the handler LB. Requires `ENABLE_LB_HANDLER=true` |
 | `LB_NAME` | `lightspeed-lb` | Prefix for all load balancer resource names |
 
-When a service's LB is enabled, `deploy.sh` automatically sets `AGENT_PROVIDER_URL` and/or `MARKETPLACE_HANDLER_URL` to the GCLB domain(s) so the AgentCard advertises the correct externally-reachable URLs.
+When a service's LB is enabled, `deploy.sh` automatically sets `AGENT_PROVIDER_URL` and/or `MARKETPLACE_HANDLER_URL` to the GCLB domain(s) so the AgentCard advertises the correct externally-reachable URLs. When LBs are not enabled, `deploy.sh` sets Cloud Run ingress to `all` so external traffic is not blocked.
 
 ### Google Cloud Service Control
 

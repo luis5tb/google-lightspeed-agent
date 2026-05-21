@@ -145,12 +145,18 @@ Pub/Sub events are internal Google Cloud traffic and reach the marketplace handl
 
 ### Ingress Restriction
 
-When an LB is enabled for a service, `deploy.sh` automatically restricts that service's Cloud Run ingress to `internal-and-cloud-load-balancing`. This means:
+`deploy.sh` manages Cloud Run ingress for each service based on its LB configuration:
 
-- External traffic **must** go through the service's GCLB (direct Cloud Run URLs are blocked from the internet)
-- Internal Google Cloud traffic (e.g., Pub/Sub to handler) still reaches services directly
+- **LB enabled** → ingress is set to `internal-and-cloud-load-balancing`. External traffic **must** go through the service's GCLB (direct Cloud Run URLs are blocked from the internet).
+- **LB not enabled** → ingress is set to `all`. External traffic reaches the service directly via its Cloud Run URL.
+
+In both cases:
+
+- Internal Google Cloud traffic (e.g., Pub/Sub to handler) always reaches services directly
 - Health checks from the load balancer are allowed
-- Each service's ingress is restricted independently — enabling the agent LB does not affect the handler's ingress, and vice versa
+- Each service's ingress is managed independently — enabling the agent LB does not affect the handler's ingress, and vice versa
+
+> **Note:** The YAML configs (`service.yaml`, `marketplace-handler.yaml`) default to `internal-and-cloud-load-balancing`. `deploy.sh` overrides this to `all` for any service without an LB. If you deploy using `gcloud run services replace` directly (bypassing `deploy.sh`), set `run.googleapis.com/ingress: all` in the YAML manually when not using a GCLB.
 
 ### Resources Created
 
@@ -316,7 +322,9 @@ gcloud logging read 'resource.type="http_load_balancer" AND jsonPayload.enforced
 
 #### Customizing Rules
 
-You can add, remove, or modify rules after deployment. Specify the per-service policy name:
+You can add, remove, or modify rules after deployment. Specify the per-service policy name.
+
+> **Note:** Priorities 1000–1700 are used by the preconfigured WAF rules. Custom rules should use priorities below 1000 or above 1700.
 
 ```bash
 # Remove a rule from the agent policy (e.g., scanner detection)
@@ -384,6 +392,8 @@ export ENABLE_MARKETPLACE="false"
 # export ENABLE_CLOUD_ARMOR_AGENT="true"
 # export ENABLE_CLOUD_ARMOR_HANDLER="true"
 ```
+
+> **Note:** `deploy.sh` manages Cloud Run ingress automatically — services with an LB get restricted ingress (`internal-and-cloud-load-balancing`), services without an LB get open ingress (`all`). No manual YAML edits are needed.
 
 **Google Cloud Marketplace deployments:** If you are deploying with marketplace
 integration (`ENABLE_MARKETPLACE=true`, the default), you **must** set the

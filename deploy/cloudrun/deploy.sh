@@ -565,9 +565,19 @@ case "$DEPLOY_SERVICE" in
         deploy_agent
         if [[ "$ENABLE_LB_HANDLER" == "true" ]]; then
             setup_service_lb "handler" "$HANDLER_SERVICE_NAME" "$HANDLER_DOMAIN_NAME" "$ENABLE_CLOUD_ARMOR_HANDLER"
+        else
+            log_info "No LB for handler — setting ingress to all..."
+            gcloud run services update "$HANDLER_SERVICE_NAME" \
+                --region="$REGION" --project="$PROJECT_ID" \
+                --ingress=all --quiet
         fi
         if [[ "$ENABLE_LB_AGENT" == "true" ]]; then
             setup_service_lb "agent" "$SERVICE_NAME" "$AGENT_DOMAIN_NAME" "$ENABLE_CLOUD_ARMOR_AGENT"
+        else
+            log_info "No LB for agent — setting ingress to all..."
+            gcloud run services update "$SERVICE_NAME" \
+                --region="$REGION" --project="$PROJECT_ID" \
+                --ingress=all --quiet
         fi
         ;;
     handler)
@@ -575,20 +585,40 @@ case "$DEPLOY_SERVICE" in
         configure_pubsub_push
         if [[ "$ENABLE_LB_HANDLER" == "true" ]]; then
             setup_service_lb "handler" "$HANDLER_SERVICE_NAME" "$HANDLER_DOMAIN_NAME" "$ENABLE_CLOUD_ARMOR_HANDLER"
+        else
+            log_info "No LB for handler — setting ingress to all..."
+            gcloud run services update "$HANDLER_SERVICE_NAME" \
+                --region="$REGION" --project="$PROJECT_ID" \
+                --ingress=all --quiet
         fi
         ;;
     agent)
         deploy_agent
         if [[ "$ENABLE_LB_AGENT" == "true" ]]; then
             setup_service_lb "agent" "$SERVICE_NAME" "$AGENT_DOMAIN_NAME" "$ENABLE_CLOUD_ARMOR_AGENT"
+        else
+            log_info "No LB for agent — setting ingress to all..."
+            gcloud run services update "$SERVICE_NAME" \
+                --region="$REGION" --project="$PROJECT_ID" \
+                --ingress=all --quiet
         fi
         ;;
     lb)
         log_info "Setting up load balancers only (no service redeploy)..."
         if [[ "$ENABLE_LB_HANDLER" == "true" ]]; then
+            if ! gcloud run services describe "$HANDLER_SERVICE_NAME" \
+                --region="$REGION" --project="$PROJECT_ID" &>/dev/null; then
+                log_error "$HANDLER_SERVICE_NAME does not exist. Deploy it first before setting up its LB."
+                exit 1
+            fi
             setup_service_lb "handler" "$HANDLER_SERVICE_NAME" "$HANDLER_DOMAIN_NAME" "$ENABLE_CLOUD_ARMOR_HANDLER"
         fi
         if [[ "$ENABLE_LB_AGENT" == "true" ]]; then
+            if ! gcloud run services describe "$SERVICE_NAME" \
+                --region="$REGION" --project="$PROJECT_ID" &>/dev/null; then
+                log_error "$SERVICE_NAME does not exist. Deploy it first before setting up its LB."
+                exit 1
+            fi
             setup_service_lb "agent" "$SERVICE_NAME" "$AGENT_DOMAIN_NAME" "$ENABLE_CLOUD_ARMOR_AGENT"
         fi
         if [[ "$ENABLE_LB_AGENT" != "true" && "$ENABLE_LB_HANDLER" != "true" ]]; then
@@ -700,13 +730,18 @@ case "$DEPLOY_SERVICE" in
             handler_url="https://$HANDLER_DOMAIN_NAME"
         fi
         if [[ -n "$handler_url" ]]; then
-            log_info "Updating agent MARKETPLACE_HANDLER_URL=$handler_url"
-            gcloud run services update "$SERVICE_NAME" \
-                --region="$REGION" \
-                --project="$PROJECT_ID" \
-                --update-env-vars="MARKETPLACE_HANDLER_URL=$handler_url" \
-                --quiet 2>&1 | grep -v "Deploying\|Creating\|Routing" || true
-            log_info "Agent env vars updated successfully"
+            if gcloud run services describe "$SERVICE_NAME" \
+                --region="$REGION" --project="$PROJECT_ID" &>/dev/null; then
+                log_info "Updating agent MARKETPLACE_HANDLER_URL=$handler_url"
+                gcloud run services update "$SERVICE_NAME" \
+                    --region="$REGION" \
+                    --project="$PROJECT_ID" \
+                    --update-env-vars="MARKETPLACE_HANDLER_URL=$handler_url" \
+                    --quiet 2>&1 | grep -v "Deploying\|Creating\|Routing" || true
+                log_info "Agent env vars updated successfully"
+            else
+                log_warn "Agent service $SERVICE_NAME not found. Deploy the agent to set MARKETPLACE_HANDLER_URL."
+            fi
         fi
 
         echo ""
@@ -757,7 +792,7 @@ case "$DEPLOY_SERVICE" in
 
         echo ""
         echo "Test the agent:"
-        echo "  curl \$(gcloud run services describe $SERVICE_NAME --region=$REGION --format='value(status.url)')/.well-known/agent-card.json"
+        echo "  curl \$(gcloud run services describe $SERVICE_NAME --region=$REGION --format='value(status.url)')/.well-known/agent.json"
         ;;
     lb)
         # Update AgentCard URLs to use GCLB domains

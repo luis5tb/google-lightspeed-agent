@@ -316,7 +316,7 @@ with the [A2A protocol](https://google.github.io/A2A/) (Agent-to-Agent) for inte
 
 - **Local Development**: `http://localhost:8000`
 - **Production (without GCLB)**: Your Cloud Run service URL
-- **Production (with GCLB)**: Your GCLB domain (e.g., `https://agent.example.com`). When per-service load balancers are enabled, `deploy.sh` sets `AGENT_PROVIDER_URL` to the GCLB domain automatically.
+- **Production (with GCLB)**: Your GCLB domain (e.g., `https://agent.example.com`). When optional per-service Google Cloud Load Balancers are enabled, `deploy.sh` sets `AGENT_PROVIDER_URL` to the GCLB domain automatically. See [Cloud Run deployment](../deploy/cloudrun/README.md#load-balancer-optional).
 
 ## Authentication
 
