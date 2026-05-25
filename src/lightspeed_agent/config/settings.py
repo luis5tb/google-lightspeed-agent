@@ -97,6 +97,12 @@ class Settings(BaseSettings):
         description="Enable read-only mode for MCP tools",
     )
 
+    # ADK AI Skills
+    skills_dir: str | None = Field(
+        default=None,
+        description="Path to directory containing ADK AI Skill sub-directories with SKILL.md files",
+    )
+
     # Agent Configuration
     agent_provider_url: str = Field(
         default="https://localhost:8000",
@@ -147,8 +153,7 @@ class Settings(BaseSettings):
     marketplace_handler_url: str = Field(
         default="",
         description=(
-            "URL of the marketplace handler service for DCR."
-            " If empty, uses agent_provider_url."
+            "URL of the marketplace handler service for DCR. If empty, uses agent_provider_url."
         ),
     )
 
@@ -248,8 +253,7 @@ class Settings(BaseSettings):
     gma_client_id: str = Field(
         default="",
         description=(
-            "Client ID for GMA SSO API"
-            " (client_credentials grant with api.iam.clients.gma scope)"
+            "Client ID for GMA SSO API (client_credentials grant with api.iam.clients.gma scope)"
         ),
     )
     gma_client_secret: str = Field(
