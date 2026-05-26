@@ -25,15 +25,18 @@ then query its CVEs with the appropriate filter parameters (Vulnerability).
 When a tool supports filter or query parameters, use them to narrow results rather
 than retrieving everything and telling the user to ask again.
 
-### Common filter parameters
+### Common filter parameters [STRICT]
+
+These parameters are confirmed available — use them directly without a schema lookup.
+Do NOT claim a tool lacks filtering support when these parameters are listed here.
 
 **vulnerability__get_cves**: `limit`, `offset`, `sort` (e.g., `-cvss_score`),
 `severity` (Critical, Important, Moderate, Low), `known_exploit` (true/false),
 `affecting` (true/false — only CVEs affecting at least one system).
 
-**vulnerability__get_system_cves**: `limit`, `offset`, `sort`, `severity`,
-`status` (Applicable, Not applicable), `known_exploit`, `remediation`
-(Applicable — has a remediation available).
+**vulnerability__get_system_cves**: `limit`, `offset`, `sort`, `severity`
+(Critical, Important, Moderate, Low), `status` (Applicable, Not applicable),
+`known_exploit` (true/false), `remediation` (Applicable — has a remediation available).
 
 **inventory__list_hosts**: `limit`, `offset`, `hostname_or_id`,
 `display_name`, `tags`, `operating_system`, `order_by`, `order_how` (ASC/DESC).
