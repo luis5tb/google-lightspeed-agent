@@ -140,7 +140,6 @@ class ProcurementEvent(BaseModel):
     )
 
 
-
 class Entitlement(BaseModel):
     """Stored entitlement record (Order)."""
 
@@ -180,5 +179,3 @@ class Entitlement(BaseModel):
         default_factory=dict,
         description="Additional metadata",
     )
-
-

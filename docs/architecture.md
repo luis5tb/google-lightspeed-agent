@@ -275,11 +275,12 @@ src/lightspeed_agent/
 │   ├── repository.py          # PostgreSQL repositories
 │   ├── service.py             # Procurement API integration
 │   └── __main__.py            # Entry point: python -m lightspeed_agent.marketplace
-└── tools/                      # MCP integration
-    ├── mcp_config.py          # MCP server configuration
-    ├── mcp_headers.py         # MCP auth headers
-    ├── insights_tools.py      # Insights tool wrappers
-    └── skills.py              # Agent skills definition
+├── tools/                      # MCP integration + A2A skills
+│   ├── mcp_config.py          # MCP server configuration
+│   ├── mcp_headers.py         # MCP auth headers
+│   ├── insights_tools.py      # Insights tool wrappers
+│   └── a2a_skills.py          # A2A AgentCard skills definition
+└── core/skills/                # Bundled ADK AI Skill definitions (SKILL.md files)
 ```
 
 ### Container Images

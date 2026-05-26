@@ -192,5 +192,3 @@ def shutdown_telemetry() -> None:
         logger.info("Shutting down OpenTelemetry tracing")
         _tracer_provider.shutdown()
         _tracer_provider = None
-
-

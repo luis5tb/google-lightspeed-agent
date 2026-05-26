@@ -173,9 +173,7 @@ return {1, "ok", min_remaining_minute, min_remaining_hour, 0, 0}
         exceeded = str(result[1])
         principal_key_index = int(result[5])
         limited_principal = (
-            principal_keys[(principal_key_index - 1) // 2]
-            if principal_key_index > 0
-            else "none"
+            principal_keys[(principal_key_index - 1) // 2] if principal_key_index > 0 else "none"
         )
 
         if allowed:
@@ -233,8 +231,8 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
     # Default paths that should be rate limited
     DEFAULT_RATE_LIMITED_PATHS: set[str] = {
-        "/",                            # A2A JSON-RPC endpoint
-        "/.well-known/agent.json",      # AgentCard discovery
+        "/",  # A2A JSON-RPC endpoint
+        "/.well-known/agent.json",  # AgentCard discovery
         "/.well-known/agent-card.json",  # AgentCard alias
     }
 
@@ -252,9 +250,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             if rate_limited_paths is not None
             else self.DEFAULT_RATE_LIMITED_PATHS
         )
-        self._skip_paths = (
-            skip_paths if skip_paths is not None else self.DEFAULT_SKIP_PATHS
-        )
+        self._skip_paths = skip_paths if skip_paths is not None else self.DEFAULT_SKIP_PATHS
 
     async def dispatch(
         self,

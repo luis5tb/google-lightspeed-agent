@@ -23,8 +23,8 @@ logger = logging.getLogger(__name__)
 # Request-scoped access token for forwarding to downstream services (e.g. MCP).
 # Stores (token, expiry) or None.  Set by AuthenticationMiddleware, read by
 # the MCP header provider in tools/mcp_headers.py.
-_request_access_token: contextvars.ContextVar[tuple[str, datetime] | None] = (
-    contextvars.ContextVar("_request_access_token", default=None)
+_request_access_token: contextvars.ContextVar[tuple[str, datetime] | None] = contextvars.ContextVar(
+    "_request_access_token", default=None
 )
 _request_order_id: contextvars.ContextVar[str | None] = contextvars.ContextVar(
     "_request_order_id", default=None
@@ -95,9 +95,7 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
     }
 
     # Path prefixes that are public
-    PUBLIC_PREFIXES = (
-        "/marketplace/",
-    )
+    PUBLIC_PREFIXES = ("/marketplace/",)
 
     def __init__(self, app: Any):
         super().__init__(app)
@@ -146,9 +144,7 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
 
             order_id = await self._resolve_and_validate_order(client_id=user.client_id)
             if not order_id:
-                return self._forbidden_response(
-                    "No active order found for this client"
-                )
+                return self._forbidden_response("No active order found for this client")
 
             # Store user in request state for access in handlers
             request.state.user = user

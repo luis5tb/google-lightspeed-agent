@@ -120,7 +120,7 @@ CI blocks merge on lint/test/lock-file failures — catching issues locally save
 
 The system runs as two separate FastAPI services with separate concerns:
 
-1. **Lightspeed Agent** (port 8000, `src/lightspeed_agent/main.py`) — The AI agent service. Scales to zero on Cloud Run. Handles A2A protocol requests (JSON-RPC 2.0 at `/`), serves the AgentCard at `/.well-known/agent.json`. Uses ADK `LlmAgent` with MCP tools loaded from the sidecar.
+1. **Lightspeed Agent** (port 8000, `src/lightspeed_agent/main.py`) — The AI agent service. Scales to zero on Cloud Run. Handles A2A protocol requests (JSON-RPC 2.0 at `/`), serves the AgentCard at `/.well-known/agent.json`. Uses ADK `LlmAgent` with MCP tools loaded from the sidecar and ADK AI Skills for modular behavioral instructions.
 
 2. **Marketplace Handler** (port 8001, `src/lightspeed_agent/marketplace/app.py`) — Always-on service for Google Cloud Marketplace Pub/Sub provisioning events and Dynamic Client Registration (DCR). Has a single hybrid `/dcr` endpoint that routes Pub/Sub messages vs DCR requests based on request content.
 
@@ -148,6 +148,14 @@ The agent loads tools from a Red Hat Lightspeed MCP server running as a sidecar:
 - Read-only mode (`MCP_READ_ONLY=true`) filters to a safe subset of tools
 - Tool categories: Advisor, Inventory, Vulnerability, Remediations, Planning, Image Builder, Subscription Management, Content Sources
 - MCP toolset creation is in `tools/insights_tools.py`; config in `tools/mcp_config.py`
+
+### ADK AI Skills
+
+Agent behavioral instructions use ADK's progressive-disclosure Skills system instead of a monolithic system prompt. Each skill is a `SKILL.md` file with YAML frontmatter (L1: name + description loaded at startup) and a markdown body (L2: full instructions loaded on-demand by the LLM).
+
+- **Bundled skills** (`core/skills/`): tool-invocation-rules, multi-step-workflows, pagination-handling, error-handling, guardrails-safety, response-formatting — always loaded
+- **External skills** (`SKILLS_DIR` env var): deployment-specific skills loaded alongside bundled ones; same-name skills override bundled defaults
+- A2A AgentCard skills (`tools/a2a_skills.py`) are a separate concept — they describe agent capabilities for the A2A protocol, not LLM behavioral instructions
 
 ### Key Middleware Stack (request order, outermost first)
 1. CORS
@@ -194,7 +202,8 @@ src/lightspeed_agent/
 ├── api/a2a/                # A2A protocol: routes, AgentCard, usage tracking
 ├── auth/                   # JWT validation middleware + token introspection
 ├── config/                 # Pydantic BaseSettings (all env vars, validation)
-├── core/agent.py           # LlmAgent creation with MCP tools
+├── core/agent.py           # LlmAgent creation with MCP tools + ADK AI Skills
+├── core/skills/            # Bundled ADK AI Skill definitions (SKILL.md files)
 ├── db/                     # SQLAlchemy ORM (3 models, async engine)
 ├── dcr/                    # Dynamic Client Registration service
 ├── marketplace/            # Marketplace handler (separate service entry point)
@@ -202,7 +211,7 @@ src/lightspeed_agent/
 ├── ratelimit/              # Redis-backed distributed rate limiter
 ├── service_control/        # Google Cloud Service Control metering
 ├── telemetry/              # OpenTelemetry setup (OTLP, Jaeger, Zipkin)
-├── tools/                  # MCP toolset definitions + JWT header forwarding
+├── tools/                  # MCP toolset definitions + JWT header forwarding + A2A skills
 └── main.py                 # Agent service entry point
 ```
 
@@ -231,6 +240,7 @@ All configuration is via environment variables, managed through Pydantic setting
 
 **Agent:**
 - `AGENT_HOST`, `AGENT_PORT`
+- `SKILLS_DIR` (optional: path to external ADK AI Skills directory; bundled skills always load, external skills overlay/override by name)
 
 **Service Control:**
 - `SERVICE_CONTROL_SERVICE_NAME`, `SERVICE_CONTROL_ENABLED`

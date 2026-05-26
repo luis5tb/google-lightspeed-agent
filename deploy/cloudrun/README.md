@@ -25,6 +25,7 @@ Deploy the Red Hat Lightspeed Agent for Google Cloud to Google Cloud Run for pro
   - [MCP Server Sidecar](#mcp-server-sidecar)
   - [Copying the MCP Image to GCR](#copying-the-mcp-image-to-gcr)
   - [Customizing MCP Server Configuration](#customizing-mcp-server-configuration)
+  - [Custom ADK AI Skills](#custom-adk-ai-skills)
   - [Alternative: Use Docker Hub](#alternative-use-docker-hub)
   - [Scaling](#scaling)
 - [How the MCP Server Works](#how-the-mcp-server-works)
@@ -1056,6 +1057,108 @@ The `--toolset` flag controls which MCP tool categories the server loads. Only t
    ```
 
 **Note**: If you change the MCP server port, you must also update the `MCP_SERVER_URL` environment variable in the agent container to match.
+
+### Custom ADK AI Skills
+
+The agent uses [ADK AI Skills](https://adk.dev/skills/) for modular behavioral instructions. Six bundled skills ship with the container image (tool invocation rules, multi-step workflows, pagination handling, error handling, guardrails/safety, response formatting). These always load at startup.
+
+You can add **custom skills** to change or extend the agent's behavior without rebuilding the image by setting the `SKILLS_DIR` environment variable to a directory containing your skill definitions. External skills with the same name as a bundled skill override the bundled version.
+
+#### Skill file format
+
+Each skill lives in its own directory with a `SKILL.md` file:
+
+```
+my-custom-skill/
+├── SKILL.md              # Required: YAML frontmatter + markdown instructions
+└── references/           # Optional: additional docs loaded on-demand
+    └── examples.md
+```
+
+The `SKILL.md` has YAML frontmatter followed by markdown instructions:
+
+```markdown
+---
+name: my-custom-skill
+description: |
+  What this skill does and when the LLM should use it.
+  Must be under 1024 characters.
+metadata:
+  author: my-team
+  version: "1.0"
+---
+
+# Detailed instructions
+
+Step-by-step instructions the agent follows when this skill is activated.
+```
+
+**Naming rules:** The directory name must match the `name` field in frontmatter exactly. Names must be lowercase kebab-case (a-z, 0-9, hyphens), max 64 characters.
+
+#### Deploying custom skills on Cloud Run
+
+**Option A: Build a custom image** with skills baked in:
+
+```dockerfile
+FROM gcr.io/$PROJECT_ID/lightspeed-agent:latest
+COPY my-skills/ /opt/agent-skills/
+ENV SKILLS_DIR=/opt/agent-skills
+```
+
+**Option B: Use a Cloud Storage volume mount** (no image rebuild):
+
+1. Upload skills to a GCS bucket:
+   ```bash
+   gsutil -m cp -r my-skills/* gs://$PROJECT_ID-agent-skills/
+   ```
+
+2. Add a volume mount to `service.yaml` on the agent container:
+   ```yaml
+   volumeMounts:
+     - name: agent-skills
+       mountPath: /skills
+       readOnly: true
+   ```
+
+3. Add the volume definition:
+   ```yaml
+   volumes:
+     - name: agent-skills
+       csi:
+         driver: gcsfuse.run.googleapis.com
+         volumeAttributes:
+           bucketName: ${PROJECT_ID}-agent-skills
+   ```
+
+4. Set the environment variable:
+   ```yaml
+   - name: SKILLS_DIR
+     value: "/skills"
+   ```
+
+5. Redeploy:
+   ```bash
+   ./deploy/cloudrun/deploy.sh --service agent
+   ```
+
+#### Overriding bundled skills
+
+To override a bundled skill (e.g., customize `response-formatting` for your deployment), create a skill directory with the same name in your external skills directory:
+
+```
+my-skills/
+├── response-formatting/        # Overrides the bundled response-formatting skill
+│   └── SKILL.md
+└── domain-specific-rules/      # New skill added alongside bundled ones
+    └── SKILL.md
+```
+
+The agent logs which skills were loaded and which were overridden:
+```
+Loaded 6 bundled skills from /app/core/skills
+External skills overriding bundled: response-formatting
+Loaded 2 external skills from /skills (7 total)
+```
 
 ### Staging Environment (MCP Sidecar)
 

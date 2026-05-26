@@ -74,8 +74,7 @@ class RetryingDatabaseSessionService(DatabaseSessionService):  # type: ignore[mi
 
                 last_error = exc
                 logger.warning(
-                    "Stale session detected (attempt %d/%d), "
-                    "reloading session and retrying",
+                    "Stale session detected (attempt %d/%d), reloading session and retrying",
                     attempt,
                     self._max_retries,
                 )
@@ -89,8 +88,7 @@ class RetryingDatabaseSessionService(DatabaseSessionService):  # type: ignore[mi
                     _sync_session_from_reloaded(session, reloaded)
                 else:
                     logger.warning(
-                        "Session not found during reload (attempt %d/%d), "
-                        "cannot retry",
+                        "Session not found during reload (attempt %d/%d), cannot retry",
                         attempt,
                         self._max_retries,
                     )

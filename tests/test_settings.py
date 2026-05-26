@@ -48,3 +48,18 @@ class TestSkipJwtProductionGuard:
         ):
             settings = Settings(skip_jwt_validation=False)
             assert settings.skip_jwt_validation is False
+
+
+class TestSkillsDirSetting:
+    """Tests for the skills_dir configuration setting."""
+
+    def test_skills_dir_default_none(self):
+        """skills_dir defaults to None."""
+        settings = Settings()
+        assert settings.skills_dir is None
+
+    def test_skills_dir_from_env(self, monkeypatch):
+        """skills_dir can be set via SKILLS_DIR env var."""
+        monkeypatch.setenv("SKILLS_DIR", "/opt/custom-skills")
+        settings = Settings(skills_dir="/opt/custom-skills")
+        assert settings.skills_dir == "/opt/custom-skills"
