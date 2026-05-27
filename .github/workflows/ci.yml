@@ -68,8 +68,31 @@ jobs:
 
           echo "All $(echo "$COMMITS" | wc -w) commit(s) verified successfully."
 
+  detect-changes:
+    name: Detect changes
+    runs-on: ubuntu-latest
+    outputs:
+      python: ${{ steps.filter.outputs.python }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            python:
+              - 'src/**'
+              - 'tests/**'
+              - 'pyproject.toml'
+              - 'requirements-*.txt'
+              - 'Makefile'
+              - 'Containerfile'
+              - 'Containerfile.marketplace-handler'
+              - 'agent.py'
+
   lock-file-check:
     name: Lock file verification
+    needs: [detect-changes]
+    if: needs.detect-changes.outputs.python == 'true'
     runs-on: ubuntu-latest
     container:
       image: quay.io/centos/centos:stream9
@@ -104,9 +127,10 @@ jobs:
 
   lint:
     name: Lint
-    needs: [konflux-verify, lock-file-check]
+    needs: [konflux-verify, lock-file-check, detect-changes]
     if: >-
       !cancelled() &&
+      needs.detect-changes.outputs.python == 'true' &&
       (needs.konflux-verify.result == 'success' || needs.konflux-verify.result == 'skipped') &&
       needs.lock-file-check.result == 'success'
     runs-on: ubuntu-latest
@@ -132,9 +156,10 @@ jobs:
 
   test:
     name: Test
-    needs: [konflux-verify, lock-file-check]
+    needs: [konflux-verify, lock-file-check, detect-changes]
     if: >-
       !cancelled() &&
+      needs.detect-changes.outputs.python == 'true' &&
       (needs.konflux-verify.result == 'success' || needs.konflux-verify.result == 'skipped') &&
       needs.lock-file-check.result == 'success'
     runs-on: ubuntu-latest
@@ -157,9 +182,10 @@ jobs:
 
   build:
     name: Build container image
-    needs: [konflux-verify, lock-file-check]
+    needs: [konflux-verify, lock-file-check, detect-changes]
     if: >-
       !cancelled() &&
+      needs.detect-changes.outputs.python == 'true' &&
       (needs.konflux-verify.result == 'success' || needs.konflux-verify.result == 'skipped') &&
       needs.lock-file-check.result == 'success'
     runs-on: ubuntu-latest
@@ -182,16 +208,21 @@ jobs:
             echo "Konflux verification failed: ${{ needs.konflux-verify.result }}"
             exit 1
           fi
-          if [[ "${{ needs.lint.result }}" != "success" || \
-                "${{ needs.test.result }}" != "success" || \
-                "${{ needs.build.result }}" != "success" || \
-                "${{ needs.lock-file-check.result }}" != "success" ]]; then
-            echo "One or more CI jobs failed or were cancelled."
-            echo "  konflux-verify:  ${{ needs.konflux-verify.result }}"
-            echo "  lock-file-check: ${{ needs.lock-file-check.result }}"
-            echo "  lint:            ${{ needs.lint.result }}"
-            echo "  test:            ${{ needs.test.result }}"
-            echo "  build:           ${{ needs.build.result }}"
+          # lock-file-check is skipped when no Python/dependency files changed — that's expected
+          if [[ "${{ needs.lock-file-check.result }}" != "success" && "${{ needs.lock-file-check.result }}" != "skipped" ]]; then
+            echo "Lock file check failed: ${{ needs.lock-file-check.result }}"
             exit 1
           fi
+          # lint, test, build are skipped when no Python/dependency files changed — that's expected
+          for job_result in "${{ needs.lint.result }}" "${{ needs.test.result }}" "${{ needs.build.result }}"; do
+            if [[ "$job_result" != "success" && "$job_result" != "skipped" ]]; then
+              echo "One or more CI jobs failed or were cancelled."
+              echo "  konflux-verify:  ${{ needs.konflux-verify.result }}"
+              echo "  lock-file-check: ${{ needs.lock-file-check.result }}"
+              echo "  lint:            ${{ needs.lint.result }}"
+              echo "  test:            ${{ needs.test.result }}"
+              echo "  build:           ${{ needs.build.result }}"
+              exit 1
+            fi
+          done
           echo "All CI jobs passed."
