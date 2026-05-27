@@ -166,6 +166,18 @@ Agent behavioral instructions use ADK's progressive-disclosure Skills system ins
 4. Redis rate limiting (`ratelimit/middleware.py`) — 60 req/min, 1000 req/hour
 5. JWT authentication (`auth/middleware.py`)
 
+### Deployment Modes
+
+The agent supports three deployment targets. The application code is identical — differences are in infrastructure-level security and orchestration:
+
+| Target | Ingress | WAF | Network Isolation | Deployment Config |
+|---|---|---|---|---|
+| **Cloud Run** | GCLB with managed SSL | Cloud Armor (OWASP CRS, DDoS) | VPC + Cloud Run ingress restrictions | `deploy/cloudrun/` |
+| **OpenShift** | Routes with TLS edge termination | None built-in (use external WAF if needed) | NetworkPolicies for DB/Redis | `deploy/openshift/` (Helm) |
+| **Podman** | Direct port binding | None | Host-level | `Makefile` targets |
+
+Application-level protections (body size limits, security headers, rate limiting, JWT auth) apply identically on all platforms. See `deploy/openshift/README.md` for OCP-specific details.
+
 ### DCR (Dynamic Client Registration)
 
 Creates OAuth tenant clients in Red Hat SSO via the GMA API (`dcr/gma_client.py`). Authenticates with `GMA_CLIENT_ID`/`GMA_CLIENT_SECRET` using `scope=api.iam.clients.gma`. Client secrets are Fernet-encrypted at rest (`DCR_ENCRYPTION_KEY`).

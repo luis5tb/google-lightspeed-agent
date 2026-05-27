@@ -310,9 +310,11 @@ See [Rate Limiting](rate-limiting.md) for details on the sliding window algorith
 |----------|---------|-------------|
 | `PUBSUB_AUDIENCE` | *(empty)* | Expected audience in Google Cloud Pub/Sub OIDC tokens. Set to the marketplace handler's URL for strict token binding. If empty, tokens are verified for signature/expiry but not audience. |
 
-### Load Balancer (Cloud Run)
+### Load Balancer (Cloud Run Only)
 
 Optional per-service Google Cloud Load Balancers (GCLB) provide SSL termination, DDoS protection, and Cloud Armor WAF. See [Cloud Run deployment](../deploy/cloudrun/README.md#load-balancer-optional) for full details.
+
+> **OpenShift deployments** use Routes for TLS termination instead of GCLB. These variables do not apply. See [OpenShift deployment](../deploy/openshift/README.md) for OCP-specific configuration.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
@@ -448,12 +450,15 @@ gcloud logging read 'jsonPayload.org_id="org-7" AND jsonPayload.message=~"mcp_jw
 |----------|---------|-------------|
 | `DEBUG` | `false` | Enable debug mode (exposes /docs) |
 | `SKIP_JWT_VALIDATION` | `false` | Skip JWT validation (dev only!) |
+| `SKIP_ORDER_VALIDATION` | `false` | Skip marketplace order-id validation. JWT introspection still occurs but the entitlement check is skipped. Blocked in Cloud Run (`K_SERVICE` check). Use for deployments without a marketplace handler (e.g., OpenShift hybrid mode). |
+| `SKIP_DCR_JWT_VALIDATION` | `false` | Skip DCR `software_statement` JWT signature verification. Accepts self-signed JWTs for DCR requests. Does not affect agent Bearer token auth. |
 
 **Development:**
 
 ```bash
 DEBUG=true
 SKIP_JWT_VALIDATION=true
+SKIP_ORDER_VALIDATION=true    # No marketplace handler in dev
 LOG_LEVEL=DEBUG
 LOG_FORMAT=text
 AGENT_LOGGING_DETAIL=detailed
@@ -570,6 +575,7 @@ google_api_key
 # .env.development
 DEBUG=true
 SKIP_JWT_VALIDATION=true
+SKIP_ORDER_VALIDATION=true    # No marketplace handler in dev
 LOG_LEVEL=DEBUG
 LOG_FORMAT=text
 AGENT_LOGGING_DETAIL=detailed

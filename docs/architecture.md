@@ -103,7 +103,7 @@ The system is split into two services for important operational reasons:
 2. **Agent can be deployed on-demand** after a customer has been provisioned
 3. **Separation of concerns**: Provisioning logic is isolated from agent logic
 4. **Independent scaling**: Handler scales for provisioning traffic, Agent scales for user traffic
-5. **Independent security perimeters**: Each service can have its own Google Cloud Load Balancer with independent Cloud Armor WAF policies, SSL certificates, and DDoS protection. See [Cloud Run deployment](../deploy/cloudrun/README.md#load-balancer-optional)
+5. **Independent security perimeters**: On Cloud Run, each service can have its own Google Cloud Load Balancer with independent Cloud Armor WAF policies, SSL certificates, and DDoS protection. See [Cloud Run deployment](../deploy/cloudrun/README.md#load-balancer-optional). On OpenShift, TLS is terminated at the Route level and network isolation is enforced via NetworkPolicies. See [OpenShift deployment](../deploy/openshift/README.md#security)
 
 ## Components
 
@@ -376,6 +376,7 @@ Authentication is enforced at the **application layer** via OAuth middleware.
 - Security headers on all responses (HSTS, X-Content-Type-Options, X-Frame-Options)
 - AgentCard responses cached at the application level to reduce CPU cost under load
 - Pub/Sub verification via Google OIDC token
+- On Cloud Run, optional per-service Google Cloud Load Balancers add Cloud Armor WAF (OWASP CRS), DDoS protection, and SSL termination at the infrastructure level. On OpenShift, Routes provide TLS termination; for WAF-equivalent protection, deploy an external WAF or API gateway. See [OpenShift Security](../deploy/openshift/README.md#security)
 
 ## Database Schema
 

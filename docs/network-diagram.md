@@ -141,3 +141,5 @@ graph TB
 5. **All external egress is HTTPS :443** -- No non-TLS external connections. Internal connections (DB, Redis, MCP) are unencrypted but within the same pod/VPC.
 
 6. **Optional per-service GCLB** -- When enabled, each service gets its own independent Google Cloud Load Balancer (:443) with SSL termination, Cloud Armor WAF, and DDoS protection. Cloud Run ingress is restricted to `internal-and-cloud-load-balancing`, blocking direct external access. Pub/Sub traffic is internal and bypasses the LBs. See [Cloud Run deployment](../deploy/cloudrun/README.md#load-balancer-optional) for configuration.
+
+7. **OpenShift deployment** -- On OpenShift, ingress uses Routes with TLS edge termination instead of GCLB. NetworkPolicies restrict database and Redis access to authorized pods. The application-level middleware stack (rate limiting, body size limits, security headers, JWT auth) provides the same baseline protection as Cloud Run. See [OpenShift deployment](../deploy/openshift/README.md) for the OCP-specific topology.
