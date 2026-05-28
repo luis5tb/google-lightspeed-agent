@@ -151,10 +151,43 @@ async def lifespan(app: A2AFastAPI) -> AsyncIterator[None]:
         except Exception as e:
             logger.error("Failed to start reporting scheduler: %s", e)
 
+    # Startup: Start the metrics collector
+    try:
+        from lightspeed_agent.telemetry.metrics import start_metrics_collector
+
+        await start_metrics_collector()
+    except Exception as e:
+        logger.error("Failed to start metrics collector: %s", e)
+
+    # Startup: Start the probe server on a separate port
+    async def _check_database() -> None:
+        from lightspeed_agent.db import get_engine
+
+        engine = get_engine()
+        async with engine.begin() as conn:
+            await conn.exec_driver_sql("SELECT 1")
+
+    async def _check_redis() -> None:
+        await get_redis_rate_limiter().verify_connection()
+
+    logger.info("Starting probe server on port %d", settings.agent_probe_port)
+    await start_probe_server(
+        settings.agent_probe_port,
+        settings.agent_name,
+        readiness_checks={"database": _check_database, "redis": _check_redis},
+    )
     yield
 
     # Shutdown: Stop the probe server
     await stop_probe_server()
+
+    # Shutdown: Stop the metrics collector
+    try:
+        from lightspeed_agent.telemetry.metrics import stop_metrics_collector
+
+        await stop_metrics_collector()
+    except Exception as e:
+        logger.error("Failed to stop metrics collector: %s", e)
 
     # Shutdown: Stop the usage reporting scheduler
     if settings.service_control_enabled and settings.service_control_service_name:
