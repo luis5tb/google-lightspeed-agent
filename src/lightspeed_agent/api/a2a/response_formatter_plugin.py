@@ -58,9 +58,7 @@ class ResponseFormatterPlugin(BasePlugin):
         # Prepend first-response notice when this is a new session
         if self._is_first_agent_response(invocation_context.session.events):
             first_text = event.content.parts[first_text_idx].text or ""
-            event.content.parts[first_text_idx].text = (
-                FIRST_RESPONSE_NOTICE + first_text
-            )
+            event.content.parts[first_text_idx].text = FIRST_RESPONSE_NOTICE + first_text
             logger.debug("Prepended first-response notice to agent response")
 
         # Append disclaimer footer to every final response

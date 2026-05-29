@@ -56,8 +56,7 @@ async def lifespan(app: A2AFastAPI) -> AsyncIterator[None]:
     try:
         from lightspeed_agent.db import init_database
 
-        logger.info("Initializing database: %s",
-                    settings.database_url.split("@")[-1])
+        logger.info("Initializing database: %s", settings.database_url.split("@")[-1])
         await init_database()
         logger.info("Database initialized successfully")
     except Exception as e:
@@ -65,8 +64,7 @@ async def lifespan(app: A2AFastAPI) -> AsyncIterator[None]:
         raise
 
     # Startup: Start the usage reporting scheduler
-    if (settings.service_control_enabled and
-            settings.service_control_service_name):
+    if settings.service_control_enabled and settings.service_control_service_name:
         try:
             from lightspeed_agent.service_control import start_reporting_scheduler
 
@@ -74,8 +72,7 @@ async def lifespan(app: A2AFastAPI) -> AsyncIterator[None]:
             await start_reporting_scheduler()
         except ImportError:
             logger.warning(
-                "google-cloud-service-control not installed, "
-                "skipping usage reporting scheduler"
+                "google-cloud-service-control not installed, skipping usage reporting scheduler"
             )
         except Exception as e:
             logger.error("Failed to start reporting scheduler: %s", e)
@@ -237,8 +234,7 @@ def create_app() -> A2AFastAPI:
             app.include_router(service_control_router)
         except ImportError:
             logger.warning(
-                "google-cloud-service-control not installed, "
-                "skipping service control router"
+                "google-cloud-service-control not installed, skipping service control router"
             )
 
     return app

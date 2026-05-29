@@ -7,19 +7,14 @@ import pytest
 
 from lightspeed_agent.dcr.gma_client import GMAClientError
 from lightspeed_agent.marketplace.models import (
-    Account,
     AccountInfo,
-    AccountState,
     Entitlement,
     EntitlementInfo,
     EntitlementState,
     ProcurementEvent,
     ProcurementEventType,
 )
-from lightspeed_agent.marketplace.repository import (
-    AccountRepository,
-    EntitlementRepository,
-)
+from lightspeed_agent.marketplace.repository import EntitlementRepository
 from lightspeed_agent.marketplace.service import ProcurementService
 
 
@@ -88,74 +83,6 @@ class TestModels:
         info = EntitlementInfo(id="order-123")
 
         assert info.product is None
-
-
-class TestAccountRepository:
-    """Tests for account repository."""
-
-    @pytest.fixture
-    def repo(self, db_session):
-        """Create a fresh repository."""
-        return AccountRepository()
-
-    @pytest.mark.asyncio
-    async def test_create_account(self, repo):
-        """Test creating an account."""
-        account = Account(
-            id="account-123",
-            provider_id="provider-456",
-            state=AccountState.ACTIVE,
-        )
-
-        created = await repo.create(account)
-
-        assert created.id == "account-123"
-        assert await repo.get("account-123") is not None
-
-    @pytest.mark.asyncio
-    async def test_get_account(self, repo):
-        """Test getting an account."""
-        account = Account(id="account-123", provider_id="provider-456")
-        await repo.create(account)
-
-        retrieved = await repo.get("account-123")
-
-        assert retrieved is not None
-        assert retrieved.id == "account-123"
-
-    @pytest.mark.asyncio
-    async def test_get_nonexistent_account(self, repo):
-        """Test getting a nonexistent account."""
-        result = await repo.get("nonexistent")
-        assert result is None
-
-    @pytest.mark.asyncio
-    async def test_update_account(self, repo):
-        """Test updating an account."""
-        account = Account(
-            id="account-123",
-            provider_id="provider-456",
-            state=AccountState.PENDING,
-        )
-        await repo.create(account)
-
-        account.state = AccountState.ACTIVE
-        updated = await repo.update(account)
-
-        assert updated.state == AccountState.ACTIVE
-
-    @pytest.mark.asyncio
-    async def test_is_valid_account(self, repo):
-        """Test account validity check."""
-        account = Account(
-            id="account-123",
-            provider_id="provider-456",
-            state=AccountState.ACTIVE,
-        )
-        await repo.create(account)
-
-        assert await repo.is_valid("account-123") is True
-        assert await repo.is_valid("nonexistent") is False
 
 
 class TestEntitlementRepository:
