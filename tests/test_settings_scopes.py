@@ -45,6 +45,7 @@ class TestScopeConfigValidation:
         settings = _make_settings(
             agent_required_scope="",
             agent_allowed_scopes="openid,profile",
+            database_url="postgresql+asyncpg://localhost/test",
         )
         with pytest.raises(ValueError, match="AGENT_REQUIRED_SCOPE must not be empty"):
             TokenIntrospector(settings=settings)
@@ -55,6 +56,7 @@ class TestScopeConfigValidation:
         settings = _make_settings(
             agent_required_scope="api.console",
             agent_allowed_scopes="",
+            database_url="postgresql+asyncpg://localhost/test",
         )
         with pytest.raises(ValueError, match="AGENT_ALLOWED_SCOPES must not be empty"):
             TokenIntrospector(settings=settings)

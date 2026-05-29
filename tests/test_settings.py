@@ -28,14 +28,20 @@ class TestSkipJwtProductionGuard:
             patch.dict(os.environ, {"K_SERVICE": "lightspeed-agent"}, clear=False),
             pytest.raises(ValidationError, match="not allowed in Cloud Run"),
         ):
-            Settings(skip_jwt_validation=True)
+            Settings(
+                skip_jwt_validation=True,
+                database_url="postgresql+asyncpg://localhost/test",
+            )
 
     def test_no_skip_jwt_allowed_in_cloud_run(self):
         """SKIP_JWT_VALIDATION=false (default) is fine in Cloud Run."""
         with patch.dict(
             os.environ, {"K_SERVICE": "lightspeed-agent"}, clear=False
         ):
-            settings = Settings(skip_jwt_validation=False)
+            settings = Settings(
+                skip_jwt_validation=False,
+                database_url="postgresql+asyncpg://localhost/test",
+            )
             assert settings.skip_jwt_validation is False
 
     def test_skip_jwt_defaults_to_false(self):
@@ -48,6 +54,39 @@ class TestSkipJwtProductionGuard:
         ):
             settings = Settings(skip_jwt_validation=False)
             assert settings.skip_jwt_validation is False
+
+
+class TestSqliteProductionGuard:
+    """Verify SQLite database URLs are blocked in Cloud Run."""
+
+    def _env_without_k_service(self) -> dict[str, str]:
+        """Return a copy of os.environ without K_SERVICE."""
+        return {k: v for k, v in os.environ.items() if k != "K_SERVICE"}
+
+    def test_sqlite_blocked_in_cloud_run(self):
+        """SQLite database_url must fail when K_SERVICE is set."""
+        with (
+            patch.dict(os.environ, {"K_SERVICE": "lightspeed-agent"}, clear=False),
+            pytest.raises(ValidationError, match="SQLite database is not allowed"),
+        ):
+            Settings(skip_jwt_validation=False)
+
+    def test_sqlite_allowed_without_k_service(self):
+        """SQLite database_url is fine when K_SERVICE is unset (local dev)."""
+        with patch.dict(os.environ, self._env_without_k_service(), clear=True):
+            settings = Settings()
+            assert settings.database_url.startswith("sqlite")
+
+    def test_postgresql_allowed_in_cloud_run(self):
+        """PostgreSQL database_url is fine when K_SERVICE is set."""
+        with patch.dict(
+            os.environ, {"K_SERVICE": "lightspeed-agent"}, clear=False
+        ):
+            settings = Settings(
+                skip_jwt_validation=False,
+                database_url="postgresql+asyncpg://localhost/test",
+            )
+            assert settings.database_url == "postgresql+asyncpg://localhost/test"
 
 
 class TestSkillsDirSetting:
