@@ -529,9 +529,7 @@ class UsageReporter:
         return {
             "failed_reports_pending": len(self._failed_reports),
             "orders_tracked": len(self._last_report_time),
-            "last_report_times": {
-                k: v.isoformat() for k, v in self._last_report_time.items()
-            },
+            "last_report_times": {k: v.isoformat() for k, v in self._last_report_time.items()},
         }
 
 

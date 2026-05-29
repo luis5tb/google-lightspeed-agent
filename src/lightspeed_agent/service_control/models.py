@@ -103,5 +103,3 @@ class UsageReport(BaseModel):
     reported_at: datetime | None = Field(default=None, description="When reported")
     error_message: str | None = Field(default=None, description="Error if report failed")
     retry_count: int = Field(default=0, description="Number of retry attempts")
-
-

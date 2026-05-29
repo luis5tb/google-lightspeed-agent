@@ -40,9 +40,9 @@ The system consists of **two separate services**:
 ┌─────────────────┐                                  ┌─────────────────────────┐
 │   PostgreSQL    │                                  │    Red Hat SSO          │
 │   Database      │◀──────────────────────────────▶│                         │
-│  - Accounts     │                                  │  - GMA SSO API          │
-│  - Entitlements │                                  │  - OIDC/OAuth           │
-│  - DCR Clients  │                                  └─────────────────────────┘
+│  - Entitlements │                                  │  - GMA SSO API          │
+│  - DCR Clients  │                                  │  - OIDC/OAuth           │
+│                 │                                  └─────────────────────────┘
 └─────────────────┘
          ▲
          │ Read/Write
@@ -67,7 +67,7 @@ The system consists of **two separate services**:
 │  │                              ▼                                            │  │
 │  │  ┌─────────────────────────────────────────────────────────────────┐      │  │
 │  │  │                        Agent Core                               │      │  │
-│  │  │                  (Google ADK + Gemini)                          │      │  │
+│  │  │              (Google ADK + Configurable LLM)                    │      │  │
 │  │  └─────────────────────────────────────────────────────────────────┘      │  │
 │  │                              │                                            │  │
 │  │                              ▼                                            │  │
@@ -80,9 +80,9 @@ The system consists of **two separate services**:
          │                    │
          ▼                    ▼
 ┌─────────────┐      ┌─────────────────────────┐
-│   Gemini    │      │  Red Hat Insights APIs  │
-│     API     │      │  (via MCP Server)       │
-│  (Vertex)   │      │  - Advisor              │
+│     LLM     │      │  Red Hat Insights APIs  │
+│  Provider   │      │  (via MCP Server)       │
+│(configurable│      │  - Advisor              │
 └─────────────┘      │  - Vulnerability        │
                      │  - Patch                │
                      │  - Content              │
@@ -104,6 +104,7 @@ The system is split into two services for important operational reasons:
 2. **Agent can be deployed on-demand** after a customer has been provisioned
 3. **Separation of concerns**: Provisioning logic is isolated from agent logic
 4. **Independent scaling**: Handler scales for provisioning traffic, Agent scales for user traffic
+5. **Independent security perimeters**: Each service can have its own Google Cloud Load Balancer with independent Cloud Armor WAF policies, SSL certificates, and DDoS protection. See [Cloud Run deployment](../deploy/cloudrun/README.md#load-balancer-optional)
 
 ## Components
 
@@ -137,7 +138,7 @@ Handles all authentication and authorization:
 
 The AI agent built with Google ADK:
 
-- **Gemini Model**: Uses Gemini 2.5 Flash for natural language understanding
+- **LLM Model**: Uses a configurable LLM (Gemini 2.5 Flash by default) for natural language understanding. Supports alternative providers via LiteLLM.
 - **Tool Orchestration**: Manages tool calls to MCP server
 - **Session Management**: Maintains conversation context
 
@@ -274,11 +275,12 @@ src/lightspeed_agent/
 │   ├── repository.py          # PostgreSQL repositories
 │   ├── service.py             # Procurement API integration
 │   └── __main__.py            # Entry point: python -m lightspeed_agent.marketplace
-└── tools/                      # MCP integration
-    ├── mcp_config.py          # MCP server configuration
-    ├── mcp_headers.py         # MCP auth headers
-    ├── insights_tools.py      # Insights tool wrappers
-    └── skills.py              # Agent skills definition
+├── tools/                      # MCP integration + A2A skills
+│   ├── mcp_config.py          # MCP server configuration
+│   ├── mcp_headers.py         # MCP auth headers
+│   ├── insights_tools.py      # Insights tool wrappers
+│   └── a2a_skills.py          # A2A AgentCard skills definition
+└── core/skills/                # Bundled ADK AI Skill definitions (SKILL.md files)
 ```
 
 ### Container Images
@@ -293,7 +295,7 @@ src/lightspeed_agent/
 
 | Service | Used By | Purpose | Required |
 |---------|---------|---------|----------|
-| Google Gemini | Agent | AI model for queries | Yes |
+| LLM Provider | Agent | AI model for queries (Gemini by default, configurable via LiteLLM) | Yes |
 | Red Hat SSO | Both | User authentication, DCR | Yes |
 | Red Hat Lightspeed MCP | Agent | Data access | Yes |
 | PostgreSQL | Both | Data persistence | Yes (Production) |
