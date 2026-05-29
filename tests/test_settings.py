@@ -67,7 +67,7 @@ class TestSqliteProductionGuard:
         """SQLite database_url must fail when K_SERVICE is set."""
         with (
             patch.dict(os.environ, {"K_SERVICE": "lightspeed-agent"}, clear=False),
-            pytest.raises(ValidationError, match="SQLite database is not allowed"),
+            pytest.raises(ValidationError, match="SQLite DATABASE_URL is not allowed"),
         ):
             Settings(skip_jwt_validation=False)
 
@@ -87,6 +87,29 @@ class TestSqliteProductionGuard:
                 database_url="postgresql+asyncpg://localhost/test",
             )
             assert settings.database_url == "postgresql+asyncpg://localhost/test"
+
+    def test_sqlite_session_database_url_blocked_in_cloud_run(self):
+        """SQLite session_database_url must fail when K_SERVICE is set."""
+        with (
+            patch.dict(os.environ, {"K_SERVICE": "lightspeed-agent"}, clear=False),
+            pytest.raises(ValidationError, match="SQLite SESSION_DATABASE_URL is not allowed"),
+        ):
+            Settings(
+                skip_jwt_validation=False,
+                database_url="postgresql+asyncpg://localhost/test",
+                session_database_url="sqlite+aiosqlite:///./sessions.db",
+            )
+
+    def test_sqlite_case_insensitive_blocked(self):
+        """SQLite check is case-insensitive."""
+        with (
+            patch.dict(os.environ, {"K_SERVICE": "lightspeed-agent"}, clear=False),
+            pytest.raises(ValidationError, match="SQLite DATABASE_URL is not allowed"),
+        ):
+            Settings(
+                skip_jwt_validation=False,
+                database_url="SQLite+aiosqlite:///./test.db",
+            )
 
 
 class TestSkillsDirSetting:
