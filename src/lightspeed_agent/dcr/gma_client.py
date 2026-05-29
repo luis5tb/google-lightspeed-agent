@@ -70,9 +70,7 @@ class GMAClient:
         self._client_id = client_id or settings.gma_client_id
         self._client_secret = client_secret or settings.gma_client_secret
         if not self._client_id or not self._client_secret:
-            raise ValueError(
-                "GMA_CLIENT_ID and GMA_CLIENT_SECRET must be set when using GMAClient"
-            )
+            raise ValueError("GMA_CLIENT_ID and GMA_CLIENT_SECRET must be set when using GMAClient")
         self._token_endpoint = token_endpoint or settings.sso_token_endpoint
         self._client_name_prefix = client_name_prefix or settings.dcr_client_name_prefix
         self._http_client = http_client
@@ -299,8 +297,7 @@ class GMAClient:
                 error_data = {"error": response.text}
 
             raise GMAClientError(
-                f"Failed to list GMA tenants: "
-                f"{error_data.get('error', 'Unknown error')}",
+                f"Failed to list GMA tenants: {error_data.get('error', 'Unknown error')}",
                 status_code=response.status_code,
                 details=error_data,
             )
@@ -337,9 +334,7 @@ class GMAClient:
 
             if response.status_code in (204, 404):
                 if response.status_code == 404:
-                    logger.info(
-                        "GMA tenant already deleted (404): %s", client_id
-                    )
+                    logger.info("GMA tenant already deleted (404): %s", client_id)
                 else:
                     logger.info("Deleted GMA tenant: %s", client_id)
                 return
@@ -351,8 +346,7 @@ class GMAClient:
                 error_data = {"error": response.text}
 
             raise GMAClientError(
-                f"Failed to delete GMA tenant: "
-                f"{error_data.get('error', 'Unknown error')}",
+                f"Failed to delete GMA tenant: {error_data.get('error', 'Unknown error')}",
                 status_code=response.status_code,
                 details=error_data,
             )

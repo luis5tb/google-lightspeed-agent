@@ -44,4 +44,3 @@ class AuthenticatedUser(BaseModel):
         description="Raw access token for forwarding to downstream services",
         exclude=True,  # Exclude from serialization for security
     )
-
