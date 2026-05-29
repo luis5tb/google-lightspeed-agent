@@ -193,7 +193,7 @@ All Procurement API calls are idempotent (400/409 treated as success). Failures 
 ### A2UI (Agent-to-UI)
 
 Optional rich UI rendering for Gemini Enterprise, controlled by `A2UI_ENABLED` (default `false`).
-When enabled, the agent's system prompt is augmented with A2UI component schema (Basic Catalog v0.8) via `a2ui-agent-sdk`. The Agent Card declares the A2UI extension and adds `application/json+a2ui` to output modes. Code is in `a2ui/prompt.py`.
+When enabled, the agent adds a `SendA2uiToClientToolset` (from `a2ui-agent-sdk`) with the A2UI Basic Catalog v0.8 schema and domain-specific Insights examples. The Agent Card declares the A2UI extension and adds `application/json+a2ui` to input and output modes. Code is in `a2ui/prompt.py` (schema manager, catalog access) and `a2ui/examples.py` (Insights-specific A2UI examples).
 
 ### Usage Metering
 
@@ -203,7 +203,7 @@ When enabled, the agent's system prompt is augmented with A2UI component schema 
 
 ```
 src/lightspeed_agent/
-├── a2ui/                   # A2UI integration: schema manager, prompt augmentation
+├── a2ui/                   # A2UI integration: schema manager, catalog access, Insights examples
 ├── api/app.py              # FastAPI app factory (lifespan, middleware, routes)
 ├── api/a2a/                # A2A protocol: routes, AgentCard, usage tracking
 ├── auth/                   # JWT validation middleware + token introspection
