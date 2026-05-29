@@ -156,9 +156,7 @@ async def _handle_pubsub_event(body: dict[str, Any]) -> JSONResponse:
                 product_id,
                 settings.service_control_service_name,
             )
-            return JSONResponse(
-                content={"status": "ok", "message": "Event not for this product"}
-            )
+            return JSONResponse(content={"status": "ok", "message": "Event not for this product"})
 
     # Try to parse as a known event type
     try:
@@ -181,7 +179,10 @@ async def _handle_pubsub_event(body: dict[str, Any]) -> JSONResponse:
         logger.exception("Failed to process marketplace event %s: %s", message_id, e)
         return JSONResponse(
             status_code=500,
-            content={"error": "event_processing_failed", "message": str(e)},
+            content={
+                "error": "event_processing_failed",
+                "message": "Internal error processing event",
+            },
         )
 
     order_id = event.entitlement.id if event.entitlement else None

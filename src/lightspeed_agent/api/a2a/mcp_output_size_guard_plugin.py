@@ -52,8 +52,7 @@ class MCPOutputSizeGuardPlugin(BasePlugin):
 
         tool_name = getattr(tool, "name", type(tool).__name__)
         logger.warning(
-            "Tool result too large, replacing with guidance "
-            "(tool=%s, size=%d, limit=%d)",
+            "Tool result too large, replacing with guidance (tool=%s, size=%d, limit=%d)",
             tool_name,
             size,
             max_chars,

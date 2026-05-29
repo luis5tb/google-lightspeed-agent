@@ -15,17 +15,13 @@ circular import (marketplace.app → marketplace.router → dcr → dcr.service
 """
 
 from lightspeed_agent.marketplace.models import (
-    Account,
-    AccountState,
     Entitlement,
     EntitlementState,
     ProcurementEvent,
     ProcurementEventType,
 )
 from lightspeed_agent.marketplace.repository import (
-    AccountRepository,
     EntitlementRepository,
-    get_account_repository,
     get_entitlement_repository,
 )
 from lightspeed_agent.marketplace.service import (
@@ -35,16 +31,12 @@ from lightspeed_agent.marketplace.service import (
 
 __all__ = [
     # Models
-    "Account",
-    "AccountState",
     "Entitlement",
     "EntitlementState",
     "ProcurementEvent",
     "ProcurementEventType",
     # Repository
-    "AccountRepository",
     "EntitlementRepository",
-    "get_account_repository",
     "get_entitlement_repository",
     # Service
     "ProcurementService",

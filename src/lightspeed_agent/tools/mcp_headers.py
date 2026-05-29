@@ -64,9 +64,7 @@ def create_mcp_header_provider() -> Callable[["ReadonlyContext"], dict[str, str]
                 )
             return {"Authorization": f"Bearer {token}"}
 
-        logger.warning(
-            "No MCP credentials available: no access token in request context"
-        )
+        logger.warning("No MCP credentials available: no access token in request context")
         return {}
 
     return header_provider
