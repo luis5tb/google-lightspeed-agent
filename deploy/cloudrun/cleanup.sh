@@ -14,7 +14,7 @@
 #
 # Options:
 #   --force       Skip confirmation prompt
-#   --purge-data  Also delete CloudSQL instances (lists Redis for manual cleanup)
+#   --purge-data  Also delete CloudSQL and Redis instances (IRREVERSIBLE)
 #
 # Prerequisites:
 #   - gcloud CLI installed and authenticated
@@ -95,14 +95,14 @@ echo "  - Pub/Sub topic: $PUBSUB_TOPIC"
 echo "  - Pub/Sub subscription: $PUBSUB_SUBSCRIPTION"
 echo "  - Secrets: redhat-sso-client-id, redhat-sso-client-secret, database-url,"
 echo "             session-database-url, gma-client-id, gma-client-secret, dcr-encryption-key,"
-echo "             rate-limit-redis-url"
+echo "             rate-limit-redis-url, redis-ca-cert"
 echo "  - Service accounts: $SERVICE_ACCOUNT"
 echo "                      $PUBSUB_INVOKER_SA"
 if [ "$PURGE_DATA" = true ]; then
     echo ""
     log_warn "DATA PURGE ENABLED — the following will also be PERMANENTLY deleted:"
-    echo "  - CloudSQL instances matching 'lightspeed' (IRREVERSIBLE DATA LOSS)"
-    echo "  - Redis instances will be listed for manual cleanup"
+    echo "  - CloudSQL instance: $DB_INSTANCE_NAME (IRREVERSIBLE DATA LOSS)"
+    echo "  - Cloud Memorystore Redis instances in $REGION (IRREVERSIBLE DATA LOSS)"
 fi
 echo ""
 
@@ -219,6 +219,7 @@ secrets=(
     "gma-client-secret"
     "dcr-encryption-key"
     "rate-limit-redis-url"
+    "redis-ca-cert"
 )
 
 for secret in "${secrets[@]}"; do
@@ -305,21 +306,26 @@ else
 fi
 
 # =============================================================================
-# Step 5: Purge Data Resources (optional)
+# Step 6: Purge Data Resources (optional)
 # =============================================================================
 if [ "$PURGE_DATA" = true ]; then
     echo ""
     log_info "Purging data resources..."
-    # Delete CloudSQL instances
-    for instance in $(gcloud sql instances list --project="$PROJECT_ID" --filter="name~^lightspeed" --format="value(name)" 2>/dev/null); do
-        echo "Deleting CloudSQL instance: $instance"
-        if ! gcloud sql instances delete "$instance" --project="$PROJECT_ID" --quiet; then
-            log_warn "Failed to delete CloudSQL instance: $instance"
+    # Delete CloudSQL instance
+    if gcloud sql instances describe "$DB_INSTANCE_NAME" --project="$PROJECT_ID" &>/dev/null; then
+        echo "Deleting CloudSQL instance: $DB_INSTANCE_NAME"
+        if ! gcloud sql instances delete "$DB_INSTANCE_NAME" --project="$PROJECT_ID" --quiet; then
+            log_warn "Failed to delete CloudSQL instance: $DB_INSTANCE_NAME"
         fi
-    done
-    # List Redis instances for manual cleanup
+    else
+        log_info "CloudSQL instance '$DB_INSTANCE_NAME' does not exist, skipping"
+    fi
+    # Delete Redis instances
     for instance in $(gcloud redis instances list --region="$REGION" --project="$PROJECT_ID" --format="value(name)" 2>/dev/null); do
-        echo "Note: Redis instance $instance must be deleted manually or via console"
+        echo "Deleting Redis instance: $instance"
+        if ! gcloud redis instances delete "$instance" --region="$REGION" --project="$PROJECT_ID" --quiet; then
+            log_warn "Failed to delete Redis instance: $instance"
+        fi
     done
     log_info "Data purge complete."
 fi
@@ -339,7 +345,8 @@ echo "  - Pub/Sub topic and subscription"
 echo "  - Secret Manager secrets"
 echo "  - Service accounts (runtime + Pub/Sub invoker) and IAM bindings"
 if [ "$PURGE_DATA" = true ]; then
-    echo "  - CloudSQL instances matching 'lightspeed'"
+    echo "  - CloudSQL instance: $DB_INSTANCE_NAME"
+    echo "  - Cloud Memorystore Redis instances in $REGION"
 fi
 echo ""
 
@@ -353,8 +360,10 @@ echo "  - VPC connectors"
 echo "  - Cloud Build triggers"
 echo ""
 echo "To delete these, use the respective gcloud commands:"
-echo "  gcloud sql instances delete $DB_INSTANCE_NAME --project=$PROJECT_ID"
-echo "  gcloud redis instances delete lightspeed-redis --region=$REGION --project=$PROJECT_ID"
+if [ "$PURGE_DATA" != true ]; then
+    echo "  gcloud sql instances delete $DB_INSTANCE_NAME --project=$PROJECT_ID"
+    echo "  gcloud redis instances delete lightspeed-redis --region=$REGION --project=$PROJECT_ID"
+fi
 echo "  gcloud container images delete gcr.io/$PROJECT_ID/$SERVICE_NAME --force-delete-tags --quiet"
 echo "  gcloud container images delete gcr.io/$PROJECT_ID/$HANDLER_SERVICE_NAME --force-delete-tags --quiet"
 echo "  gcloud container images delete gcr.io/$PROJECT_ID/red-hat-lightspeed-mcp --force-delete-tags --quiet"
