@@ -52,9 +52,7 @@ class ReportingScheduler:
         # Callbacks for alerting
         self._on_report_failure: Callable[[str, str], None] | None = None
 
-    def set_failure_callback(
-        self, callback: Callable[[str, str], None]
-    ) -> None:
+    def set_failure_callback(self, callback: Callable[[str, str], None]) -> None:
         """Set callback for report failures.
 
         Args:
@@ -66,9 +64,7 @@ class ReportingScheduler:
         """Run hourly reports in a loop."""
         # Wait until the next hour boundary
         now = datetime.utcnow()
-        next_hour = (now + timedelta(hours=1)).replace(
-            minute=0, second=0, microsecond=0
-        )
+        next_hour = (now + timedelta(hours=1)).replace(minute=0, second=0, microsecond=0)
         initial_delay = (next_hour - now).total_seconds()
 
         logger.info(
@@ -95,8 +91,7 @@ class ReportingScheduler:
                         )
 
                 logger.info(
-                    "Scheduler: Hourly report complete. "
-                    "Success: %d, Failed: %d",
+                    "Scheduler: Hourly report complete. Success: %d, Failed: %d",
                     sum(1 for r in results if r.success),
                     sum(1 for r in results if not r.success),
                 )
@@ -204,15 +199,9 @@ class ReportingScheduler:
             "hourly_interval_seconds": self._hourly_interval,
             "retry_interval_seconds": self._retry_interval,
             "last_hourly_run": (
-                self._last_hourly_run.isoformat()
-                if self._last_hourly_run
-                else None
+                self._last_hourly_run.isoformat() if self._last_hourly_run else None
             ),
-            "last_retry_run": (
-                self._last_retry_run.isoformat()
-                if self._last_retry_run
-                else None
-            ),
+            "last_retry_run": (self._last_retry_run.isoformat() if self._last_retry_run else None),
             "hourly_run_count": self._hourly_run_count,
             "retry_run_count": self._retry_run_count,
             **reporter_stats,

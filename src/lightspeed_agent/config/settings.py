@@ -18,6 +18,39 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
+    # LLM Provider Configuration
+    llm_provider: Literal["gemini", "litellm"] = Field(
+        default="gemini",
+        description=(
+            "LLM provider backend. 'gemini' uses Google AI Studio or Vertex AI directly. "
+            "'litellm' uses the LiteLLM library to support 100+ providers "
+            "(OpenAI, Anthropic, Azure, etc.)."
+        ),
+    )
+    llm_model: str | None = Field(
+        default=None,
+        description=(
+            "Model name override. For gemini provider, overrides GEMINI_MODEL if set. "
+            "For litellm provider, this is required and uses 'provider/model' format "
+            "(e.g., 'openai/gpt-4o', 'anthropic/claude-sonnet-4-20250514')."
+        ),
+    )
+    llm_api_key: str | None = Field(
+        default=None,
+        description=(
+            "API key for non-Google LLM providers (litellm only). "
+            "Some providers also accept their own env vars "
+            "(OPENAI_API_KEY, ANTHROPIC_API_KEY, etc.)."
+        ),
+    )
+    llm_api_base: str | None = Field(
+        default=None,
+        description=(
+            "Custom API endpoint URL for litellm provider "
+            "(e.g., for self-hosted or proxy endpoints)."
+        ),
+    )
+
     # Google AI / Gemini Configuration
     google_genai_use_vertexai: bool = Field(
         default=False,
@@ -97,6 +130,12 @@ class Settings(BaseSettings):
         description="Enable read-only mode for MCP tools",
     )
 
+    # ADK AI Skills
+    skills_dir: str | None = Field(
+        default=None,
+        description="Path to directory containing ADK AI Skill sub-directories with SKILL.md files",
+    )
+
     # Agent Configuration
     agent_provider_url: str = Field(
         default="https://localhost:8000",
@@ -147,8 +186,7 @@ class Settings(BaseSettings):
     marketplace_handler_url: str = Field(
         default="",
         description=(
-            "URL of the marketplace handler service for DCR."
-            " If empty, uses agent_provider_url."
+            "URL of the marketplace handler service for DCR. If empty, uses agent_provider_url."
         ),
     )
 
@@ -248,8 +286,7 @@ class Settings(BaseSettings):
     gma_client_id: str = Field(
         default="",
         description=(
-            "Client ID for GMA SSO API"
-            " (client_credentials grant with api.iam.clients.gma scope)"
+            "Client ID for GMA SSO API (client_credentials grant with api.iam.clients.gma scope)"
         ),
     )
     gma_client_secret: str = Field(
@@ -283,6 +320,10 @@ class Settings(BaseSettings):
         default=10,
         description="Maximum overflow connections beyond pool size",
     )
+    database_require_ssl: bool = Field(
+        default=False,
+        description="Require SSL/TLS for PostgreSQL database connections",
+    )
 
     # Session configuration: controls ADK session storage backend
     # Separate from marketplace DB for security isolation - each agent can have its own
@@ -314,7 +355,7 @@ class Settings(BaseSettings):
 
     # Agent allowed scopes (comma-separated allowlist)
     agent_allowed_scopes: str = Field(
-        default="openid,profile,email,api.console,api.ocm",
+        default="openid,profile,email,api.console,api.ocm,metering:admin",
         description=(
             "Comma-separated allowlist of OAuth scopes permitted in access tokens."
             " Tokens carrying scopes outside this list are rejected (HTTP 403)."

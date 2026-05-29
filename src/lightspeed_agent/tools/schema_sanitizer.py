@@ -30,6 +30,7 @@ print("[schema_sanitizer] module loading...", file=sys.stderr, flush=True)
 # Helper: recursively add missing ``type`` fields
 # ---------------------------------------------------------------------------
 
+
 def _deep_sanitize_schema(schema: dict[str, Any] | Any) -> None:
     """Walk a JSON schema dict and add ``type`` wherever it is missing."""
     if not isinstance(schema, dict):
@@ -86,7 +87,8 @@ class SanitizedMcpToolset(McpToolset):
         tools = await super().get_tools(*args, **kwargs)
         print(
             f"[schema_sanitizer] get_tools: {len(tools)} tools, replacing _get_declaration...",
-            file=sys.stderr, flush=True,
+            file=sys.stderr,
+            flush=True,
         )
 
         for tool in tools:
@@ -101,6 +103,7 @@ class SanitizedMcpToolset(McpToolset):
                         description=t.description,
                         parameters_json_schema=schema,
                     )
+
                 return _get_declaration
 
             tool._get_declaration = _make_declaration_fn(tool)
@@ -110,13 +113,11 @@ class SanitizedMcpToolset(McpToolset):
             for t in tools:
                 props = (t._mcp_tool.inputSchema or {}).get("properties", {})
                 if props:
-                    sample_props = {
-                        k: v.get("type", "MISSING")
-                        for k, v in list(props.items())[:3]
-                    }
+                    sample_props = {k: v.get("type", "MISSING") for k, v in list(props.items())[:3]}
                     print(
                         f"[schema_sanitizer] Sample '{t.name}' raw props: {sample_props}",
-                        file=sys.stderr, flush=True,
+                        file=sys.stderr,
+                        flush=True,
                     )
                     break
 
