@@ -56,14 +56,28 @@ class UsageRepository:
             dialect_name = session.get_bind().dialect.name
             if dialect_name == "postgresql":
                 await self._increment_usage_atomic(
-                    session, order_id, period_start, period_end,
-                    request_count, input_tokens, output_tokens, tool_calls, client_id,
+                    session,
+                    order_id,
+                    period_start,
+                    period_end,
+                    request_count,
+                    input_tokens,
+                    output_tokens,
+                    tool_calls,
+                    client_id,
                 )
             else:
                 # SQLite (tests): fallback to read-modify-write; not safe under concurrency
                 await self._increment_usage_fallback(
-                    session, order_id, period_start, period_end,
-                    request_count, input_tokens, output_tokens, tool_calls, client_id,
+                    session,
+                    order_id,
+                    period_start,
+                    period_end,
+                    request_count,
+                    input_tokens,
+                    output_tokens,
+                    tool_calls,
+                    client_id,
                 )
 
     async def _increment_usage_atomic(
@@ -332,4 +346,3 @@ def get_usage_repository() -> UsageRepository:
     if _usage_repo is None:
         _usage_repo = UsageRepository()
     return _usage_repo
-

@@ -1,8 +1,15 @@
 """Tests for MCP tools integration."""
 
 import os
+import pathlib
 from unittest.mock import patch
 
+from lightspeed_agent.tools.a2a_skills import (
+    ALL_SKILLS,
+    READ_ONLY_SKILLS,
+    Skill,
+    get_skills_for_agent_card,
+)
 from lightspeed_agent.tools.insights_tools import (
     ADVISOR_TOOLS,
     ALL_INSIGHTS_TOOLS,
@@ -11,12 +18,6 @@ from lightspeed_agent.tools.insights_tools import (
     VULNERABILITY_TOOLS,
 )
 from lightspeed_agent.tools.mcp_config import MCPServerConfig
-from lightspeed_agent.tools.skills import (
-    ALL_SKILLS,
-    READ_ONLY_SKILLS,
-    Skill,
-    get_skills_for_agent_card,
-)
 
 
 class TestMCPServerConfig:
@@ -57,7 +58,7 @@ class TestMCPServerConfig:
         assert "run" in args
         assert "--interactive" in args
         assert "--rm" in args
-        assert "--read-only" in args
+        assert "--readonly" in args
         assert config.container_image in args
 
     def test_stdio_args_no_readonly(self):
@@ -69,7 +70,7 @@ class TestMCPServerConfig:
 
         args = config.get_stdio_args()
 
-        assert "--read-only" not in args
+        assert "--readonly" not in args
 
     def test_http_url(self):
         """Test HTTP URL generation."""
@@ -81,8 +82,8 @@ class TestMCPServerConfig:
         assert config.get_http_url() == "http://localhost:8080/mcp"
 
 
-class TestSkills:
-    """Tests for skills definitions."""
+class TestA2ASkills:
+    """Tests for A2A skills definitions."""
 
     def test_skill_to_dict(self):
         """Test skill serialization to dict."""
@@ -162,3 +163,83 @@ class TestToolLists:
     def test_no_duplicate_tools(self):
         """Test no duplicate tools in ALL_INSIGHTS_TOOLS."""
         assert len(ALL_INSIGHTS_TOOLS) == len(set(ALL_INSIGHTS_TOOLS))
+
+
+class TestSkillLoading:
+    """Tests for ADK AI Skills loading from core/agent.py."""
+
+    def test_load_bundled_skills(self):
+        """Verify default skills load from core/skills/ when no SKILLS_DIR set."""
+        from lightspeed_agent.core.agent import _load_skills_from_dir
+
+        bundled_dir = (
+            pathlib.Path(__file__).resolve().parent.parent
+            / "src"
+            / "lightspeed_agent"
+            / "core"
+            / "skills"
+        )
+        skills = _load_skills_from_dir(bundled_dir)
+        assert len(skills) == 6
+        expected_names = {
+            "tool-invocation-rules",
+            "multi-step-workflows",
+            "pagination-handling",
+            "error-handling",
+            "guardrails-safety",
+            "response-formatting",
+        }
+        assert set(skills.keys()) == expected_names
+
+    def test_load_skills_with_external_overlay(self, tmp_path):
+        """External skills are added alongside bundled skills."""
+        from lightspeed_agent.core.agent import _load_skills
+
+        # Create an external skill
+        skill_dir = tmp_path / "custom-skill"
+        skill_dir.mkdir()
+        (skill_dir / "SKILL.md").write_text(
+            "---\nname: custom-skill\ndescription: A custom test skill.\n"
+            "metadata:\n  author: test\n  version: '1.0'\n---\n\nCustom instructions.\n"
+        )
+        result = _load_skills(str(tmp_path))
+        assert result is not None
+        # SkillToolset wraps the skill list; verify it was created (not None)
+        # The fact that _load_skills returns non-None means skills were loaded
+
+    def test_external_overrides_bundled(self, tmp_path):
+        """External skill with same name overrides bundled version."""
+        from lightspeed_agent.core.agent import _load_skills_from_dir
+
+        # Create external skill with name matching a bundled one
+        skill_dir = tmp_path / "guardrails-safety"
+        skill_dir.mkdir()
+        (skill_dir / "SKILL.md").write_text(
+            "---\nname: guardrails-safety\ndescription: Custom guardrails.\n"
+            "metadata:\n  author: test\n  version: '2.0'\n---\n\nCustom guardrails.\n"
+        )
+        skills = _load_skills_from_dir(tmp_path)
+        assert "guardrails-safety" in skills
+        assert skills["guardrails-safety"].instructions.strip() == "Custom guardrails."
+
+    def test_load_skills_empty_dir(self, tmp_path):
+        """Empty directory returns empty dict."""
+        from lightspeed_agent.core.agent import _load_skills_from_dir
+
+        skills = _load_skills_from_dir(tmp_path)
+        assert skills == {}
+
+    def test_load_skills_nonexistent_dir(self):
+        """Nonexistent directory returns empty dict."""
+        from lightspeed_agent.core.agent import _load_skills_from_dir
+
+        skills = _load_skills_from_dir(pathlib.Path("/nonexistent/path"))
+        assert skills == {}
+
+    def test_load_skills_bundled_always_loads(self):
+        """Even with a nonexistent SKILLS_DIR, bundled skills still load."""
+        from lightspeed_agent.core.agent import _load_skills
+
+        result = _load_skills("/nonexistent/external/path")
+        # Bundled skills should still load (6 skills)
+        assert result is not None

@@ -27,15 +27,14 @@ metadata:
     component: provisioning
   annotations:
     run.googleapis.com/description: "Marketplace provisioning and DCR handler for Lightspeed Agent"
-    run.googleapis.com/ingress: all
+    run.googleapis.com/ingress: internal-and-cloud-load-balancing
     run.googleapis.com/launch-stage: GA
+    run.googleapis.com/minScale: "1"
+    run.googleapis.com/maxScale: "2"
 spec:
   template:
     metadata:
       annotations:
-        # Scaling: Keep at least 1 instance to receive Pub/Sub events quickly
-        autoscaling.knative.dev/minScale: "1"
-        autoscaling.knative.dev/maxScale: "1"
         run.googleapis.com/cpu-throttling: "false"
         run.googleapis.com/startup-cpu-boost: "true"
         # Cloud SQL connection

@@ -176,9 +176,7 @@ class TokenIntrospector:
 
         except httpx.RequestError as exc:
             logger.exception("HTTP error calling introspection endpoint: %s", exc)
-            raise TokenValidationError(
-                f"HTTP error calling introspection endpoint: {exc}"
-            ) from exc
+            raise TokenValidationError(f"HTTP error calling introspection endpoint: {exc}") from exc
 
     @staticmethod
     def _parse_scopes(data: dict[str, Any]) -> list[str]:
@@ -193,9 +191,7 @@ class TokenIntrospector:
         # Token expiry
         exp = data.get("exp")
         token_exp = (
-            datetime.fromtimestamp(exp, tz=UTC)
-            if exp
-            else datetime.now(UTC).replace(year=2099)
+            datetime.fromtimestamp(exp, tz=UTC) if exp else datetime.now(UTC).replace(year=2099)
         )
 
         metadata: dict[str, str] = {}

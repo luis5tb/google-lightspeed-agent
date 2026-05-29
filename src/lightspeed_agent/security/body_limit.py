@@ -49,8 +49,7 @@ class RequestBodyLimitMiddleware:
                             content={
                                 "error": "request_too_large",
                                 "message": (
-                                    f"Request body exceeds "
-                                    f"the {self.max_bytes} byte limit"
+                                    f"Request body exceeds the {self.max_bytes} byte limit"
                                 ),
                             },
                         )
@@ -74,8 +73,7 @@ class RequestBodyLimitMiddleware:
                 bytes_received += len(body)
                 if bytes_received > self.max_bytes:
                     logger.warning(
-                        "Rejected request: streamed body (%d bytes) "
-                        "exceeds %d byte limit",
+                        "Rejected request: streamed body (%d bytes) exceeds %d byte limit",
                         bytes_received,
                         self.max_bytes,
                     )

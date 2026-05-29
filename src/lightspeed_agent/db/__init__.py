@@ -14,7 +14,6 @@ from lightspeed_agent.db.base import (
 )
 from lightspeed_agent.db.models import (
     DCRClientModel,
-    MarketplaceAccountModel,
     MarketplaceEntitlementModel,
     UsageRecordModel,
 )
@@ -28,7 +27,6 @@ __all__ = [
     "init_database",
     "close_database",
     # Models
-    "MarketplaceAccountModel",
     "MarketplaceEntitlementModel",
     "DCRClientModel",
     "UsageRecordModel",
