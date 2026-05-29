@@ -9,6 +9,7 @@ marketplace-handler service. See lightspeed_agent.marketplace.
 """
 
 import logging
+import os
 import pathlib
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -52,12 +53,24 @@ async def lifespan(app: A2AFastAPI) -> AsyncIterator[None]:
         logger.error("Rate limiter Redis backend is unavailable: %s", e)
         raise
 
+    # Startup: Warn if database SSL is not enabled in Cloud Run with PostgreSQL
+    if (
+        os.getenv("K_SERVICE")
+        and not settings.database_require_ssl
+        and settings.database_url.startswith("postgresql")
+    ):
+        logger.warning(
+            "DATABASE_REQUIRE_SSL is not enabled in Cloud Run (K_SERVICE=%s). "
+            "If using direct TCP connections (not Cloud SQL Proxy), "
+            "enable DATABASE_REQUIRE_SSL=true to encrypt database traffic.",
+            os.getenv("K_SERVICE"),
+        )
+
     # Startup: Initialize database
     try:
         from lightspeed_agent.db import init_database
 
-        logger.info("Initializing database: %s",
-                    settings.database_url.split("@")[-1])
+        logger.info("Initializing database: %s", settings.database_url.split("@")[-1])
         await init_database()
         logger.info("Database initialized successfully")
     except Exception as e:
@@ -65,8 +78,7 @@ async def lifespan(app: A2AFastAPI) -> AsyncIterator[None]:
         raise
 
     # Startup: Start the usage reporting scheduler
-    if (settings.service_control_enabled and
-            settings.service_control_service_name):
+    if settings.service_control_enabled and settings.service_control_service_name:
         try:
             from lightspeed_agent.service_control import start_reporting_scheduler
 
@@ -74,8 +86,7 @@ async def lifespan(app: A2AFastAPI) -> AsyncIterator[None]:
             await start_reporting_scheduler()
         except ImportError:
             logger.warning(
-                "google-cloud-service-control not installed, "
-                "skipping usage reporting scheduler"
+                "google-cloud-service-control not installed, skipping usage reporting scheduler"
             )
         except Exception as e:
             logger.error("Failed to start reporting scheduler: %s", e)
@@ -237,8 +248,7 @@ def create_app() -> A2AFastAPI:
             app.include_router(service_control_router)
         except ImportError:
             logger.warning(
-                "google-cloud-service-control not installed, "
-                "skipping service control router"
+                "google-cloud-service-control not installed, skipping service control router"
             )
 
     return app

@@ -68,12 +68,72 @@ jobs:
 
           echo "All $(echo "$COMMITS" | wc -w) commit(s) verified successfully."
 
+  detect-changes:
+    name: Detect changes
+    runs-on: ubuntu-latest
+    outputs:
+      python: ${{ steps.filter.outputs.python }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            python:
+              - 'src/**'
+              - 'tests/**'
+              - 'pyproject.toml'
+              - 'requirements-*.txt'
+              - 'Makefile'
+              - 'Containerfile'
+              - 'Containerfile.marketplace-handler'
+              - 'agent.py'
+
+  lock-file-check:
+    name: Lock file verification
+    needs: [detect-changes]
+    if: needs.detect-changes.outputs.python == 'true'
+    runs-on: ubuntu-latest
+    container:
+      image: quay.io/centos/centos:stream9
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Python and uv
+        run: |
+          dnf install -y python3.12 python3.12-pip python3.12-devel diffutils make
+          python3.12 -m pip install uv
+
+      - name: Verify lock files
+        run: make lock-check
+
+  vulnerability-scan:
+    name: Vulnerability scan (pip-audit)
+    needs: [lock-file-check]
+    if: needs.lock-file-check.result == 'success'
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    container:
+      image: quay.io/centos/centos:stream9
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Python and pip-audit
+        run: |
+          dnf install -y python3.12 python3.12-pip make
+          python3.12 -m pip install pip-audit
+
+      - name: Scan dependencies
+        run: make audit
+
   lint:
     name: Lint
-    needs: [konflux-verify]
+    needs: [konflux-verify, lock-file-check, detect-changes]
     if: >-
       !cancelled() &&
-      (needs.konflux-verify.result == 'success' || needs.konflux-verify.result == 'skipped')
+      needs.detect-changes.outputs.python == 'true' &&
+      (needs.konflux-verify.result == 'success' || needs.konflux-verify.result == 'skipped') &&
+      needs.lock-file-check.result == 'success'
     runs-on: ubuntu-latest
     container:
       image: quay.io/centos/centos:stream9
@@ -84,7 +144,10 @@ jobs:
         run: dnf install -y python3.12 python3.12-pip python3.12-devel
 
       - name: Install dependencies
-        run: python3.12 -m pip install -e ".[agent,dev]"
+        run: |
+          python3.12 -m pip install --require-hashes -r requirements-agent.txt
+          python3.12 -m pip install --require-hashes -r requirements-dev.txt
+          python3.12 -m pip install --no-deps -e .
 
       - name: Run ruff
         run: python3.12 -m ruff check src/ tests/
@@ -94,10 +157,12 @@ jobs:
 
   test:
     name: Test
-    needs: [konflux-verify]
+    needs: [konflux-verify, lock-file-check, detect-changes]
     if: >-
       !cancelled() &&
-      (needs.konflux-verify.result == 'success' || needs.konflux-verify.result == 'skipped')
+      needs.detect-changes.outputs.python == 'true' &&
+      (needs.konflux-verify.result == 'success' || needs.konflux-verify.result == 'skipped') &&
+      needs.lock-file-check.result == 'success'
     runs-on: ubuntu-latest
     container:
       image: quay.io/centos/centos:stream9
@@ -108,17 +173,22 @@ jobs:
         run: dnf install -y python3.12 python3.12-pip python3.12-devel
 
       - name: Install dependencies
-        run: python3.12 -m pip install -e ".[agent,dev]"
+        run: |
+          python3.12 -m pip install --require-hashes -r requirements-agent.txt
+          python3.12 -m pip install --require-hashes -r requirements-dev.txt
+          python3.12 -m pip install --no-deps -e .
 
       - name: Run tests
         run: python3.12 -m pytest tests/ -v
 
   build:
     name: Build container image
-    needs: [konflux-verify]
+    needs: [konflux-verify, lock-file-check, detect-changes]
     if: >-
       !cancelled() &&
-      (needs.konflux-verify.result == 'success' || needs.konflux-verify.result == 'skipped')
+      needs.detect-changes.outputs.python == 'true' &&
+      (needs.konflux-verify.result == 'success' || needs.konflux-verify.result == 'skipped') &&
+      needs.lock-file-check.result == 'success'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -129,7 +199,7 @@ jobs:
   ci-gate:
     name: CI Gate
     if: always()
-    needs: [konflux-verify, lint, test, build]
+    needs: [konflux-verify, lock-file-check, lint, test, build]
     runs-on: ubuntu-latest
     steps:
       - name: Check all jobs passed
@@ -139,12 +209,21 @@ jobs:
             echo "Konflux verification failed: ${{ needs.konflux-verify.result }}"
             exit 1
           fi
-          if [[ "${{ needs.lint.result }}" != "success" || "${{ needs.test.result }}" != "success" || "${{ needs.build.result }}" != "success" ]]; then
-            echo "One or more CI jobs failed or were cancelled."
-            echo "  konflux-verify: ${{ needs.konflux-verify.result }}"
-            echo "  lint:           ${{ needs.lint.result }}"
-            echo "  test:           ${{ needs.test.result }}"
-            echo "  build:          ${{ needs.build.result }}"
+          # lock-file-check is skipped when no Python/dependency files changed — that's expected
+          if [[ "${{ needs.lock-file-check.result }}" != "success" && "${{ needs.lock-file-check.result }}" != "skipped" ]]; then
+            echo "Lock file check failed: ${{ needs.lock-file-check.result }}"
             exit 1
           fi
+          # lint, test, build are skipped when no Python/dependency files changed — that's expected
+          for job_result in "${{ needs.lint.result }}" "${{ needs.test.result }}" "${{ needs.build.result }}"; do
+            if [[ "$job_result" != "success" && "$job_result" != "skipped" ]]; then
+              echo "One or more CI jobs failed or were cancelled."
+              echo "  konflux-verify:  ${{ needs.konflux-verify.result }}"
+              echo "  lock-file-check: ${{ needs.lock-file-check.result }}"
+              echo "  lint:            ${{ needs.lint.result }}"
+              echo "  test:            ${{ needs.test.result }}"
+              echo "  build:           ${{ needs.build.result }}"
+              exit 1
+            fi
+          done
           echo "All CI jobs passed."

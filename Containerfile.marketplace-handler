@@ -10,9 +10,9 @@ FROM registry.access.redhat.com/ubi10/python-312-minimal:latest as builder
 WORKDIR /opt/app-root/src
 
 # Install Python dependencies
-COPY pyproject.toml README.md ./
+COPY requirements-handler.txt ./
 RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir "."
+    pip install --no-cache-dir --require-hashes -r requirements-handler.txt
 
 # =============================================================================
 # Production Stage
@@ -40,7 +40,8 @@ COPY src/ ./src/
 COPY pyproject.toml README.md ./
 
 # Install the application
-RUN pip install --no-cache-dir -e .
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir --no-deps -e .
 
 # Create directory for data (if using SQLite)
 RUN mkdir -p /opt/app-root/src/data

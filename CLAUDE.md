@@ -38,6 +38,45 @@ To run with coverage:
 python -m pytest tests/ -v --cov=src/lightspeed_agent --cov-report=term-missing
 ```
 
+### Dependency Management
+
+Lock files (`requirements-agent.txt`, `requirements-handler.txt`, `requirements-dev.txt`) pin exact versions with cryptographic hashes for reproducible builds.
+
+```bash
+make lock                              # Regenerate all lock files (always run before committing)
+make lock-agent                        # Regenerate agent lock file only
+make lock-handler                      # Regenerate marketplace handler lock file only
+make lock-dev                          # Regenerate dev lock file only
+make audit                             # Scan dependencies for known vulnerabilities (pip-audit)
+```
+
+**Workflow:**
+1. Edit `pyproject.toml` (add/update dependencies)
+2. Run `make lock` to regenerate lock files
+3. Review the changes in `requirements-*.txt`
+4. Commit both `pyproject.toml` and lock files together
+
+**Note:** `make lock` is safe to run anytime - if nothing changed, it regenerates identical files.
+
+**Fixing CVEs in transitive dependencies:**
+
+If a transitive dependency has a CVE, you cannot manually edit lock files. Instead:
+
+1. Add the transitive dependency as a direct dependency in `pyproject.toml` with the safe version constraint
+2. Run `make lock` to regenerate lock files
+3. Commit both files
+
+Example:
+```toml
+# In pyproject.toml dependencies section:
+dependencies = [
+    # ... existing deps ...
+    "pydantic-core>=2.41.6",  # CVE fix: force safe version
+]
+```
+
+Then run `make lock` and commit.
+
 ### Linting & Type Checking
 ```bash
 make lint                              # Run both ruff and mypy
@@ -68,13 +107,13 @@ make cve-scan                          # Scan for CVEs with Trivy
 
 ### Before Pushing
 
-Always run lint and tests before pushing commits:
+Always regenerate lock files, run lint and tests before pushing commits:
 
 ```bash
-make lint && make test
+make lock && make lint && make test
 ```
 
-CI blocks merge on lint/test failures — catching issues locally saves round-trip time.
+CI blocks merge on lint/test/lock-file failures — catching issues locally saves round-trip time.
 
 ## Architecture
 
@@ -82,14 +121,14 @@ CI blocks merge on lint/test failures — catching issues locally saves round-tr
 
 The system runs as two separate FastAPI services with separate concerns:
 
-1. **Lightspeed Agent** (port 8000, `src/lightspeed_agent/main.py`) — The AI agent service. Scales to zero on Cloud Run. Handles A2A protocol requests (JSON-RPC 2.0 at `/`), serves the AgentCard at `/.well-known/agent.json`. Uses ADK `LlmAgent` with MCP tools loaded from the sidecar.
+1. **Lightspeed Agent** (port 8000, `src/lightspeed_agent/main.py`) — The AI agent service. Scales to zero on Cloud Run. Handles A2A protocol requests (JSON-RPC 2.0 at `/`), serves the AgentCard at `/.well-known/agent.json`. Uses ADK `LlmAgent` with MCP tools loaded from the sidecar and ADK AI Skills for modular behavioral instructions.
 
 2. **Marketplace Handler** (port 8001, `src/lightspeed_agent/marketplace/app.py`) — Always-on service for Google Cloud Marketplace Pub/Sub provisioning events and Dynamic Client Registration (DCR). Has a single hybrid `/dcr` endpoint that routes Pub/Sub messages vs DCR requests based on request content.
 
 ### Database Isolation
 
 Two separate PostgreSQL databases (security boundary):
-- **Marketplace DB** (`DATABASE_URL`) — accounts, entitlements, DCR clients, usage records. Shared by both services.
+- **Marketplace DB** (`DATABASE_URL`) — entitlements, DCR clients, usage records. Shared by both services.
 - **Session DB** (`SESSION_DATABASE_URL`) — ADK conversation sessions. Agent-only.
 
 Both fall back to SQLite for development. ORM models are in `src/lightspeed_agent/db/models.py`.
@@ -111,10 +150,19 @@ The agent loads tools from a Red Hat Lightspeed MCP server running as a sidecar:
 - Tool categories: Advisor, Inventory, Vulnerability, Remediations, Planning, Image Builder, Subscription Management, Content Sources
 - MCP toolset creation is in `tools/insights_tools.py`; config in `tools/mcp_config.py`
 
+### ADK AI Skills
+
+Agent behavioral instructions use ADK's progressive-disclosure Skills system instead of a monolithic system prompt. Each skill is a `SKILL.md` file with YAML frontmatter (L1: name + description loaded at startup) and a markdown body (L2: full instructions loaded on-demand by the LLM).
+
+- **Bundled skills** (`core/skills/`): tool-invocation-rules, multi-step-workflows, pagination-handling, error-handling, guardrails-safety, response-formatting — always loaded
+- **External skills** (`SKILLS_DIR` env var): deployment-specific skills loaded alongside bundled ones; same-name skills override bundled defaults
+- A2A AgentCard skills (`tools/a2a_skills.py`) are a separate concept — they describe agent capabilities for the A2A protocol, not LLM behavioral instructions
+
 ### Key Middleware Stack (request order, outermost first)
 1. CORS
 2. Request body size limit (`security/body_limit.py`) — 10 MB agent, 1 MB marketplace handler
-3. Security headers (`security/middleware.py`) — HSTS, X-Content-Type-Options, X-Frame-Options
+3. Security headers (`security/middleware.py`) — HSTS, CSP, X-Content-Type-Options,
+   X-Frame-Options, Referrer-Policy, Permissions-Policy, Cache-Control
 4. Redis rate limiting (`ratelimit/middleware.py`) — 60 req/min, 1000 req/hour
 5. JWT authentication (`auth/middleware.py`)
 
@@ -156,15 +204,16 @@ src/lightspeed_agent/
 ├── api/a2a/                # A2A protocol: routes, AgentCard, usage tracking
 ├── auth/                   # JWT validation middleware + token introspection
 ├── config/                 # Pydantic BaseSettings (all env vars, validation)
-├── core/agent.py           # LlmAgent creation with MCP tools
-├── db/                     # SQLAlchemy ORM (4 models, async engine)
+├── core/agent.py           # LlmAgent creation with MCP tools + ADK AI Skills
+├── core/skills/            # Bundled ADK AI Skill definitions (SKILL.md files)
+├── db/                     # SQLAlchemy ORM (3 models, async engine)
 ├── dcr/                    # Dynamic Client Registration service
 ├── marketplace/            # Marketplace handler (separate service entry point)
 ├── metering/               # Usage record repository + backfill
 ├── ratelimit/              # Redis-backed distributed rate limiter
 ├── service_control/        # Google Cloud Service Control metering
 ├── telemetry/              # OpenTelemetry setup (OTLP, Jaeger, Zipkin)
-├── tools/                  # MCP toolset definitions + JWT header forwarding
+├── tools/                  # MCP toolset definitions + JWT header forwarding + A2A skills
 └── main.py                 # Agent service entry point
 ```
 
@@ -179,6 +228,7 @@ All configuration is via environment variables, managed through Pydantic setting
 
 **Database:**
 - `DATABASE_URL` / `SESSION_DATABASE_URL` (PostgreSQL or SQLite)
+- `DATABASE_REQUIRE_SSL` (enforce SSL for PostgreSQL; not needed for Cloud SQL Proxy)
 
 **Auth:**
 - `RED_HAT_SSO_CLIENT_ID` / `RED_HAT_SSO_CLIENT_SECRET`
@@ -193,6 +243,7 @@ All configuration is via environment variables, managed through Pydantic setting
 
 **Agent:**
 - `AGENT_HOST`, `AGENT_PORT`
+- `SKILLS_DIR` (optional: path to external ADK AI Skills directory; bundled skills always load, external skills overlay/override by name)
 
 **Service Control:**
 - `SERVICE_CONTROL_SERVICE_NAME`, `SERVICE_CONTROL_ENABLED`
