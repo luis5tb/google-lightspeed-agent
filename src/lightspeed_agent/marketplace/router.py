@@ -80,7 +80,7 @@ async def pubsub_handler(request: Request) -> JSONResponse:
     try:
         audience = settings.pubsub_audience or None
         await asyncio.to_thread(
-            google_id_token.verify_oauth2_token,  # type: ignore[no-untyped-call]
+            google_id_token.verify_oauth2_token,
             token,
             google_requests.Request(),
             audience=audience,
