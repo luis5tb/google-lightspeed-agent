@@ -367,9 +367,18 @@ configure_pubsub_push() {
             $impersonate_flag
     fi
 
+    # Update the handler's PUBSUB_AUDIENCE to match the subscription's audience
+    log_info "Setting PUBSUB_AUDIENCE=$push_endpoint on $HANDLER_SERVICE_NAME..."
+    gcloud run services update "$HANDLER_SERVICE_NAME" \
+        --region="$REGION" \
+        --project="$PROJECT_ID" \
+        --update-env-vars="PUBSUB_AUDIENCE=${push_endpoint}" \
+        --quiet 2>&1 | grep -v "Deploying\|Creating\|Routing" || true
+
     log_info "Pub/Sub push subscription configured:"
     log_info "  Subscription: $PUBSUB_SUBSCRIPTION"
     log_info "  Push endpoint: $push_endpoint"
+    log_info "  Audience: $push_endpoint"
     log_info "  Auth SA: $PUBSUB_INVOKER_SA"
 }
 
