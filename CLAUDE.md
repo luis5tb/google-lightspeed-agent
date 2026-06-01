@@ -107,13 +107,13 @@ make cve-scan                          # Scan for CVEs with Trivy
 
 ### Before Pushing
 
-Always regenerate lock files, run lint and tests before pushing commits:
+Run lint and tests before pushing commits:
 
 ```bash
-make lock && make lint && make test
+make lint && make test
 ```
 
-CI blocks merge on lint/test/lock-file failures — catching issues locally saves round-trip time.
+If you modified `pyproject.toml`, also regenerate lock files (`make lock`) and commit them together. CI only enforces lock file sync when `pyproject.toml` changes.
 
 ## Architecture
 

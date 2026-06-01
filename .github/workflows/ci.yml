@@ -73,6 +73,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       python: ${{ steps.filter.outputs.python }}
+      pyproject: ${{ steps.filter.outputs.pyproject }}
     steps:
       - uses: actions/checkout@v4
       - uses: dorny/paths-filter@v3
@@ -88,11 +89,13 @@ jobs:
               - 'Containerfile'
               - 'Containerfile.marketplace-handler'
               - 'agent.py'
+            pyproject:
+              - 'pyproject.toml'
 
   lock-file-check:
     name: Lock file verification
     needs: [detect-changes]
-    if: needs.detect-changes.outputs.python == 'true'
+    if: needs.detect-changes.outputs.pyproject == 'true'
     runs-on: ubuntu-latest
     container:
       image: quay.io/centos/centos:stream9
@@ -109,8 +112,11 @@ jobs:
 
   vulnerability-scan:
     name: Vulnerability scan (pip-audit)
-    needs: [lock-file-check]
-    if: needs.lock-file-check.result == 'success'
+    needs: [lock-file-check, detect-changes]
+    if: >-
+      !cancelled() &&
+      needs.detect-changes.outputs.python == 'true' &&
+      (needs.lock-file-check.result == 'success' || needs.lock-file-check.result == 'skipped')
     runs-on: ubuntu-latest
     continue-on-error: true
     container:
@@ -133,7 +139,7 @@ jobs:
       !cancelled() &&
       needs.detect-changes.outputs.python == 'true' &&
       (needs.konflux-verify.result == 'success' || needs.konflux-verify.result == 'skipped') &&
-      needs.lock-file-check.result == 'success'
+      (needs.lock-file-check.result == 'success' || needs.lock-file-check.result == 'skipped')
     runs-on: ubuntu-latest
     container:
       image: quay.io/centos/centos:stream9
@@ -162,7 +168,7 @@ jobs:
       !cancelled() &&
       needs.detect-changes.outputs.python == 'true' &&
       (needs.konflux-verify.result == 'success' || needs.konflux-verify.result == 'skipped') &&
-      needs.lock-file-check.result == 'success'
+      (needs.lock-file-check.result == 'success' || needs.lock-file-check.result == 'skipped')
     runs-on: ubuntu-latest
     container:
       image: quay.io/centos/centos:stream9
@@ -188,7 +194,7 @@ jobs:
       !cancelled() &&
       needs.detect-changes.outputs.python == 'true' &&
       (needs.konflux-verify.result == 'success' || needs.konflux-verify.result == 'skipped') &&
-      needs.lock-file-check.result == 'success'
+      (needs.lock-file-check.result == 'success' || needs.lock-file-check.result == 'skipped')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -209,7 +215,7 @@ jobs:
             echo "Konflux verification failed: ${{ needs.konflux-verify.result }}"
             exit 1
           fi
-          # lock-file-check is skipped when no Python/dependency files changed — that's expected
+          # lock-file-check is skipped when pyproject.toml was not changed — that's expected
           if [[ "${{ needs.lock-file-check.result }}" != "success" && "${{ needs.lock-file-check.result }}" != "skipped" ]]; then
             echo "Lock file check failed: ${{ needs.lock-file-check.result }}"
             exit 1

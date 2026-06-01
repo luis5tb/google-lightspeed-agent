@@ -62,25 +62,23 @@ lint:
 # =============================================================================
 
 lock:
-	@echo "Updating uv to latest version..."
-	source .venv/bin/activate && pip install --upgrade uv
 	$(MAKE) lock-agent lock-handler lock-dev
 
 lock-agent:
 	@echo "Regenerating agent lock file..."
-	source .venv/bin/activate && uv pip compile --upgrade --generate-hashes --python-version=3.12 --python-platform=linux \
+	source .venv/bin/activate && uv pip compile --generate-hashes --python-version=3.12 --python-platform=linux \
 		--extra agent --output-file=requirements-agent.txt pyproject.toml
 	@echo "✓ requirements-agent.txt updated"
 
 lock-handler:
 	@echo "Regenerating marketplace handler lock file..."
-	source .venv/bin/activate && uv pip compile --upgrade --generate-hashes --python-version=3.12 --python-platform=linux \
+	source .venv/bin/activate && uv pip compile --generate-hashes --python-version=3.12 --python-platform=linux \
 		--output-file=requirements-handler.txt pyproject.toml
 	@echo "✓ requirements-handler.txt updated"
 
 lock-dev:
 	@echo "Regenerating dev lock file..."
-	source .venv/bin/activate && uv pip compile --upgrade --generate-hashes --python-version=3.12 --python-platform=linux \
+	source .venv/bin/activate && uv pip compile --generate-hashes --python-version=3.12 --python-platform=linux \
 		--extra dev --output-file=requirements-dev.txt pyproject.toml
 	@echo "✓ requirements-dev.txt updated"
 
