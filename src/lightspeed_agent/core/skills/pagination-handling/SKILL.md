@@ -86,9 +86,10 @@ When the result set is large:
 1. **Apply filters first** — use `severity`, `remediation`, `status`, `known_exploit`,
    or other parameters documented in the `multi-step-workflows` skill to narrow results
    before paginating.
-2. **Use `meta.total_items` for counting** — a "how many" question never requires
-   fetching every page. Make one filtered call with `limit=1` and read
-   `meta.total_items` from the response.
+2. **Use response metadata for counting** — a "how many" question never requires
+   fetching every page. Make one filtered call with `limit=1` and read the total from
+   the response metadata: `meta.total_items` for Vulnerability tools, `total` for
+   Inventory tools, `meta.count` for Advisor/Content Sources/Image Builder/RHSM tools.
 3. **Paginate when needed** — if the user needs actual data (not just a count), paginate
    through all pages using the stop conditions above.
 

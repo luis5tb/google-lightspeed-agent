@@ -38,6 +38,11 @@ Do NOT claim a tool lacks filtering support when these parameters are listed her
 (Critical, Important, Moderate, Low), `status` (Applicable, Not applicable),
 `known_exploit` (true/false), `remediation` (Applicable — has a remediation available).
 
+**vulnerability__get_systems**: `limit`, `offset`, `sort`, `filter` (system display
+name search). **Note:** this tool lists only systems tracked by the Vulnerability
+service — for general host/system counts, prefer `inventory__list_hosts` (see
+Tool Disambiguation below).
+
 **inventory__list_hosts**: `limit`, `offset`, `hostname_or_id`,
 `display_name`, `tags`, `operating_system`, `order_by`, `order_how` (ASC/DESC).
 
@@ -47,6 +52,23 @@ fallback — but prefer the parameters above to avoid large OpenAPI responses.
 
 Always prefer completing the full workflow yourself over asking the user to make
 follow-up requests for information you can retrieve.
+
+### Tool disambiguation: system/host listing [STRICT]
+
+Two tools can list systems — they query **different services** and return **different
+counts**:
+
+| Tool | Service | Scope |
+|------|---------|-------|
+| `inventory__list_hosts` | Inventory | **All** registered systems (including immutable/edge) |
+| `vulnerability__get_systems` | Vulnerability | Only systems tracked for CVE analysis (excludes immutable) |
+
+**Selection rule:**
+- General "how many systems/hosts do I have?" or "list my systems" →
+  **`inventory__list_hosts`** (source of truth for the full fleet).
+- "Which systems are affected by CVE-X?" or vulnerability-scoped queries →
+  `vulnerability__get_systems` or `vulnerability__get_cve_systems`.
+- When the user says **"inventory"**, always use **`inventory__list_hosts`**.
 
 ## Multi-Step Workflow Examples [GUIDANCE]
 
@@ -75,8 +97,13 @@ health report
 → inventory__list_hosts (hostname_or_id=X) → get the host ID →
 vulnerability__get_system_cves (severity=Critical, remediation=Applicable, limit=1) →
 read **`meta.total_items`** from the response → report the count.
-You do NOT need to fetch every page to answer "how many" — `meta.total_items` gives
+You do NOT need to fetch every page to answer "how many" — the response metadata gives
 the total matching the filters in a single call.
+
+**"How many systems are in my inventory?"** (system counting query)
+→ inventory__list_hosts (limit=1) → read the total from the response metadata →
+report the count. Do NOT use `vulnerability__get_systems` for general system counts —
+it returns a smaller subset that excludes immutable systems.
 
 When a request is simple and genuinely maps to a single tool (e.g., "list my hosts" →
 inventory__list_hosts), a single tool call is fine. The point is: think first, don't
