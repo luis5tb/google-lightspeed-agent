@@ -178,16 +178,21 @@ agent:
 
 ```bash
 cp deploy/openshift/values.yaml deploy/openshift/my-values.yaml
+cp deploy/openshift/secrets.yaml.example deploy/openshift/secrets.yaml
 ```
 
-Edit `my-values.yaml`:
+Edit `my-values.yaml` (non-secret configuration only):
 
 ```yaml
 deploymentMode: hybrid   # default
 
 auth:
   skipOrderValidation: true
+```
 
+Edit `secrets.yaml` (credentials — git-ignored to prevent accidental commits):
+
+```yaml
 secrets:
   create: true
   googleApiKey: "your-real-api-key"
@@ -204,13 +209,15 @@ enforced.
 
 > **Persistent sessions**: To persist sessions across pod restarts, set
 > `postgresql.sessionBackend: database` and provide `secrets.sessionDbPassword`
-> and `secrets.sessionDatabaseUrl`. This deploys a session PostgreSQL instance.
+> and `secrets.sessionDatabaseUrl` in `secrets.yaml`. This deploys a session
+> PostgreSQL instance.
 
 ### 5. Install
 
 ```bash
 helm install lightspeed-agent deploy/openshift/ \
   -f deploy/openshift/my-values.yaml \
+  -f deploy/openshift/secrets.yaml \
   -n lightspeed-agent
 ```
 
@@ -236,6 +243,7 @@ Then apply:
 ```bash
 helm upgrade lightspeed-agent deploy/openshift/ \
   -f deploy/openshift/my-values.yaml \
+  -f deploy/openshift/secrets.yaml \
   -n lightspeed-agent
 ```
 
@@ -314,9 +322,10 @@ standaloneUI:
 
 ```bash
 cp deploy/openshift/values.yaml deploy/openshift/my-values.yaml
+cp deploy/openshift/secrets.yaml.example deploy/openshift/secrets.yaml
 ```
 
-Edit `my-values.yaml`:
+Edit `my-values.yaml` (non-secret configuration only):
 
 ```yaml
 deploymentMode: standalone
@@ -328,7 +337,11 @@ auth:
   skipDcrJwtValidation: true
   # Skip Pub/Sub OIDC — standalone UI sends simulated events directly
   skipPubsubOidcVerification: true
+```
 
+Edit `secrets.yaml` (credentials — git-ignored to prevent accidental commits):
+
+```yaml
 secrets:
   create: true
   googleApiKey: "your-real-api-key"
@@ -349,13 +362,15 @@ secrets:
 > **Note:** Setting `deploymentMode: standalone` automatically deploys the handler,
 > standalone UI, and marketplace PostgreSQL — no additional flags are needed.
 > Sessions use in-memory storage by default; set `postgresql.sessionBackend: database`
-> to persist them (see hybrid mode note above).
+> and provide the session DB credentials in `secrets.yaml` to persist them
+> (see hybrid mode note above).
 
 ### 5. Install
 
 ```bash
 helm install lightspeed-agent deploy/openshift/ \
   -f deploy/openshift/my-values.yaml \
+  -f deploy/openshift/secrets.yaml \
   -n lightspeed-agent
 ```
 
@@ -384,6 +399,7 @@ Then apply:
 ```bash
 helm upgrade lightspeed-agent deploy/openshift/ \
   -f deploy/openshift/my-values.yaml \
+  -f deploy/openshift/secrets.yaml \
   -n lightspeed-agent
 ```
 
@@ -840,6 +856,7 @@ oc autoscale deployment/lightspeed-agent --min=1 --max=5 --cpu-percent=80 -n lig
 ```bash
 helm upgrade lightspeed-agent deploy/openshift/ \
   -f deploy/openshift/my-values.yaml \
+  -f deploy/openshift/secrets.yaml \
   -n lightspeed-agent
 ```
 
