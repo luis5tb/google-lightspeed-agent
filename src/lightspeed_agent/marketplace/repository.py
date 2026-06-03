@@ -4,6 +4,7 @@ Uses PostgreSQL via SQLAlchemy for persistence.
 """
 
 import logging
+from datetime import datetime
 
 from sqlalchemy import select
 
@@ -129,6 +130,49 @@ class EntitlementRepository:
                 entitlement.state,
             )
             return self._model_to_entity(model)
+
+    async def delete(self, entitlement_id: str) -> bool:
+        """Hard-delete an entitlement record.
+
+        Args:
+            entitlement_id: The Entitlement/Order ID.
+
+        Returns:
+            True if a record was deleted, False if not found.
+        """
+        async with get_session() as session:
+            result = await session.execute(
+                select(MarketplaceEntitlementModel).where(
+                    MarketplaceEntitlementModel.id == entitlement_id
+                )
+            )
+            model = result.scalar_one_or_none()
+            if model:
+                await session.delete(model)
+                logger.info("Deleted entitlement: %s", entitlement_id)
+                return True
+            return False
+
+    async def get_expired_cancelled(self, cutoff: datetime) -> list[Entitlement]:
+        """Get entitlements in CANCELLED/DELETED state older than cutoff.
+
+        Args:
+            cutoff: Return entitlements with updated_at before this timestamp.
+
+        Returns:
+            List of expired cancelled/deleted entitlements.
+        """
+        async with get_session() as session:
+            result = await session.execute(
+                select(MarketplaceEntitlementModel).where(
+                    MarketplaceEntitlementModel.state.in_([
+                        EntitlementState.CANCELLED.value,
+                        EntitlementState.DELETED.value,
+                    ]),
+                    MarketplaceEntitlementModel.updated_at < cutoff,
+                )
+            )
+            return [self._model_to_entity(m) for m in result.scalars().all()]
 
     async def is_valid(self, entitlement_id: str) -> bool:
         """Check if an entitlement is valid (exists and active).

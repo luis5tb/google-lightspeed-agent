@@ -26,6 +26,7 @@ class ReportingScheduler:
         reporter: UsageReporter | None = None,
         hourly_interval_seconds: int = 3600,
         retry_interval_seconds: int = 300,
+        purge_interval_seconds: int | None = None,
     ) -> None:
         """Initialize the scheduler.
 
@@ -33,21 +34,26 @@ class ReportingScheduler:
             reporter: Usage reporter instance.
             hourly_interval_seconds: Interval for hourly reports (default: 3600).
             retry_interval_seconds: Interval for retry attempts (default: 300).
+            purge_interval_seconds: Interval for data purge runs (default: from settings).
         """
         self._reporter = reporter or get_usage_reporter()
         self._hourly_interval = hourly_interval_seconds
         self._retry_interval = retry_interval_seconds
+        self._purge_interval = purge_interval_seconds
 
         # Task handles
         self._hourly_task: asyncio.Task[None] | None = None
         self._retry_task: asyncio.Task[None] | None = None
+        self._purge_task: asyncio.Task[None] | None = None
 
         # State
         self._running = False
         self._last_hourly_run: datetime | None = None
         self._last_retry_run: datetime | None = None
+        self._last_purge_run: datetime | None = None
         self._hourly_run_count = 0
         self._retry_run_count = 0
+        self._purge_run_count = 0
 
         # Callbacks for alerting
         self._on_report_failure: Callable[[str, str], None] | None = None
@@ -130,12 +136,50 @@ class ReportingScheduler:
 
             await asyncio.sleep(self._retry_interval)
 
+    async def _run_data_purge(self) -> None:
+        """Periodically purge expired cancelled/deleted entitlement data."""
+        from lightspeed_agent.config import get_settings
+        from lightspeed_agent.marketplace.purge import get_data_purge_service
+
+        settings = get_settings()
+        interval = self._purge_interval or (settings.data_purge_interval_hours * 3600)
+
+        # Initial delay: stagger 5 minutes after startup to avoid thundering herd
+        await asyncio.sleep(300)
+
+        while self._running:
+            try:
+                logger.info("Scheduler: Starting data purge run")
+                self._last_purge_run = datetime.utcnow()
+                self._purge_run_count += 1
+
+                purge_service = get_data_purge_service()
+                results = await purge_service.purge_expired_data(settings.data_retention_days)
+
+                total_usage = sum(r.usage_records_deleted for r in results)
+                total_entitlements = sum(1 for r in results if r.entitlement_deleted)
+                total_errors = sum(len(r.errors) for r in results)
+
+                logger.info(
+                    "Scheduler: Data purge complete. "
+                    "Orders=%d, usage_records=%d, entitlements=%d, errors=%d",
+                    len(results),
+                    total_usage,
+                    total_entitlements,
+                    total_errors,
+                )
+            except Exception as e:
+                logger.exception("Scheduler: Data purge failed: %s", e)
+
+            await asyncio.sleep(interval)
+
     async def start(self) -> None:
         """Start the scheduler.
 
         This starts the background tasks for:
         - Hourly usage reporting
         - Retry of failed reports
+        - Data purge (if enabled)
         """
         if self._running:
             logger.warning("Scheduler already running")
@@ -154,10 +198,21 @@ class ReportingScheduler:
             name="retry_failed_reports",
         )
 
+        # Start data purge task if enabled
+        from lightspeed_agent.config import get_settings
+
+        settings = get_settings()
+        if settings.data_purge_enabled:
+            self._purge_task = asyncio.create_task(
+                self._run_data_purge(),
+                name="data_purge",
+            )
+
         logger.info(
-            "Scheduler started with hourly_interval=%ds, retry_interval=%ds",
+            "Scheduler started with hourly_interval=%ds, retry_interval=%ds, purge_enabled=%s",
             self._hourly_interval,
             self._retry_interval,
+            settings.data_purge_enabled,
         )
 
     async def stop(self) -> None:
@@ -178,6 +233,11 @@ class ReportingScheduler:
             self._retry_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await self._retry_task
+
+        if self._purge_task:
+            self._purge_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._purge_task
 
         logger.info("Scheduler stopped")
 
@@ -202,8 +262,10 @@ class ReportingScheduler:
                 self._last_hourly_run.isoformat() if self._last_hourly_run else None
             ),
             "last_retry_run": (self._last_retry_run.isoformat() if self._last_retry_run else None),
+            "last_purge_run": (self._last_purge_run.isoformat() if self._last_purge_run else None),
             "hourly_run_count": self._hourly_run_count,
             "retry_run_count": self._retry_run_count,
+            "purge_run_count": self._purge_run_count,
             **reporter_stats,
         }
 
