@@ -964,17 +964,49 @@ deploy both services in a single command. Cloud Build also handles step 6 (Copy
 MCP Image to GCR) automatically. By default, the pipeline creates per-service
 Google Cloud Load Balancers (GCLB) with Cloud Armor WAF protection.
 
-**Prerequisites** (in addition to steps 1-5 above):
+#### One-Command Deployment
 
-When deploying with GCLB enabled (the default), you must configure DNS **before** running
-the pipeline. After running `setup.sh`, create DNS A records pointing your domain names
-to the static IPs that the pipeline will reserve. Google-managed SSL certificates require
-DNS resolution to provision and will remain in `PROVISIONING` state (15-60 minutes) until
-the DNS records propagate. HTTPS traffic returns errors until the certificate is `ACTIVE`.
-
-Grant the Cloud Build service account the required roles:
+The `deploy-cloudbuild.sh` wrapper runs the full deployment in a single command —
+it calls `setup.sh` (idempotent), grants the Cloud Build service account IAM roles,
+and submits the Cloud Build pipeline:
 
 ```bash
+# Deploy with GCLB + Cloud Armor (setup + build + deploy in one command)
+./deploy/cloudrun/deploy-cloudbuild.sh \
+  --agent-domain agent.example.com --handler-domain dcr.example.com
+
+# Deploy without GCLB
+./deploy/cloudrun/deploy-cloudbuild.sh --no-lb
+
+# Deploy with public access
+./deploy/cloudrun/deploy-cloudbuild.sh --no-lb --allow-unauthenticated
+
+# Preview the gcloud command without executing
+./deploy/cloudrun/deploy-cloudbuild.sh --no-lb --dry-run
+```
+
+| Flag | Description |
+|------|-------------|
+| `--agent-domain DOMAIN` | Domain name for the agent GCLB (enables LB for agent) |
+| `--handler-domain DOMAIN` | Domain name for the handler GCLB (enables LB for handler) |
+| `--no-lb` | Disable GCLB for both services |
+| `--allow-unauthenticated` | Allow public access to both services |
+| `--region REGION` | GCP region (default: `us-central1`) |
+| `--image-tag TAG` | Container image tag (default: `latest`) |
+| `--dry-run` | Print the `gcloud builds submit` command without executing |
+
+When deploying with GCLB enabled, you must configure DNS **before** running
+the script. After the first run creates static IPs, create DNS A records pointing
+your domain names to those IPs. Google-managed SSL certificates require DNS
+resolution to provision (15-60 minutes).
+
+#### Manual Cloud Build Submission
+
+If you prefer to run `setup.sh` and grant IAM roles separately, you can submit
+the Cloud Build pipeline directly:
+
+```bash
+# Grant Cloud Build SA the required roles (one-time)
 PROJECT_NUMBER=$(gcloud projects describe $GOOGLE_CLOUD_PROJECT --format='value(projectNumber)')
 CB_SA="${PROJECT_NUMBER}@cloudbuild.gserviceaccount.com"
 
@@ -986,22 +1018,14 @@ gcloud projects add-iam-policy-binding $GOOGLE_CLOUD_PROJECT \
   --member="serviceAccount:$CB_SA" --role="roles/pubsub.editor"
 gcloud projects add-iam-policy-binding $GOOGLE_CLOUD_PROJECT \
   --member="serviceAccount:$CB_SA" --role="roles/compute.admin"
-```
 
-**Deploy:**
-
-```bash
-# Deploy with GCLB + Cloud Armor (default, requires domain names)
+# Deploy with GCLB + Cloud Armor (requires domain names)
 gcloud builds submit --config=cloudbuild.yaml \
   --substitutions=_AGENT_DOMAIN_NAME=agent.example.com,_HANDLER_DOMAIN_NAME=dcr.example.com
 
 # Deploy without GCLB (services accessible via Cloud Run URLs directly)
 gcloud builds submit --config=cloudbuild.yaml \
   --substitutions=_ENABLE_LB_AGENT=false,_ENABLE_LB_HANDLER=false
-
-# Deploy with public access and GCLB
-gcloud builds submit --config=cloudbuild.yaml \
-  --substitutions=_ALLOW_UNAUTHENTICATED=true,_AGENT_DOMAIN_NAME=agent.example.com,_HANDLER_DOMAIN_NAME=dcr.example.com
 
 # Override region or image tag
 gcloud builds submit --config=cloudbuild.yaml \
@@ -1044,6 +1068,8 @@ All variables have defaults matching `deploy.sh`. Override any with `--substitut
 | `_ENABLE_LB_HANDLER` | `true` | Enable GCLB for the marketplace handler service |
 | `_ENABLE_CLOUD_ARMOR_AGENT` | `true` | Enable Cloud Armor WAF for the agent LB |
 | `_ENABLE_CLOUD_ARMOR_HANDLER` | `true` | Enable Cloud Armor WAF for the handler LB |
+| `_CLOUD_ARMOR_SENSITIVITY_AGENT` | `1` | OWASP CRS sensitivity level for agent WAF (1-4) |
+| `_CLOUD_ARMOR_SENSITIVITY_HANDLER` | `2` | OWASP CRS sensitivity level for handler WAF (1-4) |
 | `_AGENT_DOMAIN_NAME` | *(empty)* | Domain name for agent SSL certificate (required when LB enabled) |
 | `_HANDLER_DOMAIN_NAME` | *(empty)* | Domain name for handler SSL certificate (required when LB enabled) |
 | `_LB_NAME` | `lightspeed-lb` | Prefix for all GCLB resource names |

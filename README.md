@@ -736,15 +736,13 @@ Quick deploy:
 export GOOGLE_CLOUD_PROJECT="your-project-id"
 export GOOGLE_CLOUD_LOCATION="us-central1"
 
-# Run setup script
+# Option A: One-command Cloud Build deployment (setup + deploy + GCLB)
+./deploy/cloudrun/deploy-cloudbuild.sh \
+  --agent-domain agent.example.com --handler-domain dcr.example.com
+
+# Option B: Manual deployment with deploy.sh
 ./deploy/cloudrun/setup.sh
-
-# Option A: Manual deployment with deploy.sh
 ./deploy/cloudrun/deploy.sh --service all --build --allow-unauthenticated
-
-# Option B: CI/CD pipeline with Cloud Build (includes GCLB + Cloud Armor by default)
-gcloud builds submit --config=cloudbuild.yaml \
-  --substitutions=_AGENT_DOMAIN_NAME=agent.example.com,_HANDLER_DOMAIN_NAME=dcr.example.com
 ```
 
 ## License
