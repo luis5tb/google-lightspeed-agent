@@ -478,13 +478,22 @@ setup_service_lb() {
         fi
 
         # Enable JSON parsing for JSON-RPC/DCR request bodies and verbose logging
-        gcloud compute security-policies update "$policy_name" \
+        # --request-body-inspection-size requires gcloud beta; fall back to GA if unavailable
+        if gcloud beta compute security-policies update "$policy_name" \
             --json-parsing=STANDARD \
             --request-body-inspection-size=64kB \
             --log-level=VERBOSE \
             --global \
-            --project="$PROJECT_ID"
-        log_info "Security policy '$policy_name' configured: JSON parsing, 64kB body inspection, verbose logging"
+            --project="$PROJECT_ID" 2>/dev/null; then
+            log_info "Security policy '$policy_name' configured: JSON parsing, 64kB body inspection, verbose logging"
+        else
+            gcloud compute security-policies update "$policy_name" \
+                --json-parsing=STANDARD \
+                --log-level=VERBOSE \
+                --global \
+                --project="$PROJECT_ID"
+            log_info "Security policy '$policy_name' configured: JSON parsing, verbose logging (body inspection size requires gcloud beta)"
+        fi
 
         # Add preconfigured WAF rules (OWASP ModSecurity CRS)
         declare -A WAF_RULES=(
@@ -505,12 +514,11 @@ setup_service_lb() {
             local waf_rule_name="${WAF_RULES[$priority]}"
             if ! gcloud compute security-policies rules describe "$priority" \
                 --security-policy="$policy_name" \
-                --global --project="$PROJECT_ID" &>/dev/null; then
+                --project="$PROJECT_ID" &>/dev/null; then
                 gcloud compute security-policies rules create "$priority" \
                     --security-policy="$policy_name" \
                     --expression="evaluatePreconfiguredWaf('${waf_rule_name}', {'sensitivity': ${waf_sensitivity}})" \
                     --action=deny-403 \
-                    --global \
                     --project="$PROJECT_ID"
                 log_info "WAF rule '${waf_rule_name}' added at priority $priority"
             else
