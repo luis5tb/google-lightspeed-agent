@@ -2,8 +2,9 @@
 # CI/CD pipeline for the Red Hat Lightspeed Agent for Google Cloud
 #
 # Images are built externally by Konflux and pushed to Quay.io.
-# This pipeline pulls pre-built images from Quay, pushes them to GCR
-# (Cloud Run cannot pull from Quay.io directly), and deploys both
+# This pipeline pulls pre-built images from Quay, scans them for
+# vulnerabilities with Trivy, pushes them to GCR (Cloud Run cannot
+# pull from Quay.io directly), and deploys both
 # services to Cloud Run with optional per-service GCLB and Cloud Armor WAF:
 #   1. marketplace-handler - Handles DCR and Pub/Sub events (always running)
 #   2. lightspeed-agent    - A2A agent with MCP sidecar (always running)
@@ -56,6 +57,7 @@ substitutions:
   _AGENT_DOMAIN_NAME: ""
   _HANDLER_DOMAIN_NAME: ""
   _LB_NAME: lightspeed-lb
+  _SCAN_SEVERITY: "CRITICAL,HIGH"
 
 timeout: 1800s
 
@@ -105,47 +107,126 @@ steps:
     waitFor: ['-']
 
   # ==========================================================================
-  # COPY PHASE - Pull pre-built images from Quay.io and push to GCR (parallel)
+  # PULL PHASE - Pull pre-built images from Quay.io (parallel)
   # ==========================================================================
 
   - name: 'gcr.io/cloud-builders/docker'
-    id: 'copy-agent'
+    id: 'pull-agent'
+    args: ['pull', '${_AGENT_SOURCE_IMAGE}']
+    waitFor: ['-']
+
+  - name: 'gcr.io/cloud-builders/docker'
+    id: 'pull-handler'
+    args: ['pull', '${_HANDLER_SOURCE_IMAGE}']
+    waitFor: ['-']
+
+  - name: 'gcr.io/cloud-builders/docker'
+    id: 'pull-mcp'
+    args: ['pull', '${_MCP_SOURCE_IMAGE}']
+    waitFor: ['-']
+
+  # ==========================================================================
+  # SCAN PHASE - Vulnerability scan with Trivy (parallel, blocks push on failure)
+  # Download the DB once, then run parallel scans with --skip-db-update to
+  # avoid race conditions when multiple Trivy instances download concurrently.
+  # ==========================================================================
+
+  - name: 'aquasec/trivy'
+    id: 'download-trivy-db'
+    entrypoint: 'sh'
+    args:
+      - '-c'
+      - |
+        trivy image --download-db-only --cache-dir /workspace/.trivy-cache
+        cp -r /workspace/.trivy-cache /workspace/.trivy-cache-agent
+        cp -r /workspace/.trivy-cache /workspace/.trivy-cache-handler
+        cp -r /workspace/.trivy-cache /workspace/.trivy-cache-mcp
+    waitFor: ['-']
+
+  - name: 'aquasec/trivy'
+    id: 'scan-agent'
+    args:
+      - 'image'
+      - '--exit-code'
+      - '1'
+      - '--severity'
+      - '${_SCAN_SEVERITY}'
+      - '--no-progress'
+      - '--cache-dir'
+      - '/workspace/.trivy-cache-agent'
+      - '--skip-db-update'
+      - '${_AGENT_SOURCE_IMAGE}'
+    waitFor: ['pull-agent', 'download-trivy-db']
+
+  - name: 'aquasec/trivy'
+    id: 'scan-handler'
+    args:
+      - 'image'
+      - '--exit-code'
+      - '1'
+      - '--severity'
+      - '${_SCAN_SEVERITY}'
+      - '--no-progress'
+      - '--cache-dir'
+      - '/workspace/.trivy-cache-handler'
+      - '--skip-db-update'
+      - '${_HANDLER_SOURCE_IMAGE}'
+    waitFor: ['pull-handler', 'download-trivy-db']
+
+  - name: 'aquasec/trivy'
+    id: 'scan-mcp'
+    args:
+      - 'image'
+      - '--exit-code'
+      - '1'
+      - '--severity'
+      - '${_SCAN_SEVERITY}'
+      - '--no-progress'
+      - '--cache-dir'
+      - '/workspace/.trivy-cache-mcp'
+      - '--skip-db-update'
+      - '${_MCP_SOURCE_IMAGE}'
+    waitFor: ['pull-mcp', 'download-trivy-db']
+
+  # ==========================================================================
+  # PUSH PHASE - Tag and push scanned images to GCR (parallel)
+  # ==========================================================================
+
+  - name: 'gcr.io/cloud-builders/docker'
+    id: 'push-agent'
     entrypoint: 'bash'
     args:
       - '-euo'
       - 'pipefail'
       - '-c'
       - |
-        docker pull ${_AGENT_SOURCE_IMAGE} && \
         docker tag ${_AGENT_SOURCE_IMAGE} gcr.io/${PROJECT_ID}/${_SERVICE_NAME}:${_IMAGE_TAG} && \
         docker push gcr.io/${PROJECT_ID}/${_SERVICE_NAME}:${_IMAGE_TAG}
-    waitFor: ['-']
+    waitFor: ['scan-agent']
 
   - name: 'gcr.io/cloud-builders/docker'
-    id: 'copy-handler'
+    id: 'push-handler'
     entrypoint: 'bash'
     args:
       - '-euo'
       - 'pipefail'
       - '-c'
       - |
-        docker pull ${_HANDLER_SOURCE_IMAGE} && \
         docker tag ${_HANDLER_SOURCE_IMAGE} gcr.io/${PROJECT_ID}/${_HANDLER_SERVICE_NAME}:${_IMAGE_TAG} && \
         docker push gcr.io/${PROJECT_ID}/${_HANDLER_SERVICE_NAME}:${_IMAGE_TAG}
-    waitFor: ['-']
+    waitFor: ['scan-handler']
 
   - name: 'gcr.io/cloud-builders/docker'
-    id: 'copy-mcp'
+    id: 'push-mcp'
     entrypoint: 'bash'
     args:
       - '-euo'
       - 'pipefail'
       - '-c'
       - |
-        docker pull ${_MCP_SOURCE_IMAGE} && \
         docker tag ${_MCP_SOURCE_IMAGE} gcr.io/${PROJECT_ID}/red-hat-lightspeed-mcp:latest && \
         docker push gcr.io/${PROJECT_ID}/red-hat-lightspeed-mcp:latest
-    waitFor: ['-']
+    waitFor: ['scan-mcp']
 
   # ==========================================================================
   # DEPLOY PHASE - Deploy services to Cloud Run
@@ -174,7 +255,7 @@ steps:
         gcloud run services replace /workspace/handler.yaml \
             --region=${_REGION} \
             --project=${PROJECT_ID}
-    waitFor: ['copy-handler']
+    waitFor: ['push-handler']
 
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     id: 'deploy-agent'
@@ -198,7 +279,7 @@ steps:
         gcloud run services replace /workspace/service.yaml \
             --region=${_REGION} \
             --project=${PROJECT_ID}
-    waitFor: ['copy-agent', 'copy-mcp', 'deploy-handler']
+    waitFor: ['push-agent', 'push-mcp', 'deploy-handler']
 
   # ==========================================================================
   # GCLB PHASE - Set up per-service Google Cloud Load Balancers
