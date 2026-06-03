@@ -255,7 +255,7 @@ steps:
         gcloud run services replace /workspace/handler.yaml \
             --region=${_REGION} \
             --project=${PROJECT_ID}
-    waitFor: ['push-handler']
+    waitFor: ['push-agent', 'push-handler', 'push-mcp']
 
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     id: 'deploy-agent'
@@ -279,7 +279,7 @@ steps:
         gcloud run services replace /workspace/service.yaml \
             --region=${_REGION} \
             --project=${PROJECT_ID}
-    waitFor: ['push-agent', 'push-mcp', 'deploy-handler']
+    waitFor: ['push-agent', 'push-handler', 'push-mcp', 'deploy-handler']
 
   # ==========================================================================
   # GCLB PHASE - Set up per-service Google Cloud Load Balancers
@@ -398,9 +398,14 @@ steps:
           exit 0
         fi
 
-        PUSH_ENDPOINT="$$HANDLER_URL/dcr"
+        PUSH_ENDPOINT="$$HANDLER_URL/pubsub"
         INVOKER_SA="${_PUBSUB_INVOKER_NAME}@${PROJECT_ID}.iam.gserviceaccount.com"
-        SUBSCRIPTION="${_PUBSUB_SUBSCRIPTION:-${_PUBSUB_TOPIC}-sub}"
+
+        # Cloud Build does not substitute _VARS inside bash default syntax,
+        # so capture the value in a shell variable first, then apply the fallback.
+        TOPIC_SHORT=$$(echo "${_PUBSUB_TOPIC}" | sed 's|.*/||')
+        CB_SUB="${_PUBSUB_SUBSCRIPTION}"
+        SUBSCRIPTION="$${CB_SUB:-$${TOPIC_SHORT}-sub}"
 
         gcloud run services add-iam-policy-binding ${_HANDLER_SERVICE_NAME} \
             --region=${_REGION} \
@@ -409,11 +414,19 @@ steps:
             --role="roles/run.invoker" \
             --quiet || true
 
+        # Use service account impersonation for cross-project topics
+        IMPERSONATE_FLAG=""
+        if echo "${_PUBSUB_TOPIC}" | grep -q '^projects/'; then
+          IMPERSONATE_FLAG="--impersonate-service-account=$$INVOKER_SA"
+          echo "Using service account impersonation for cross-project topic"
+        fi
+
         if gcloud pubsub subscriptions describe "$$SUBSCRIPTION" --project=${PROJECT_ID} &>/dev/null; then
           echo "Updating existing subscription '$$SUBSCRIPTION'..."
           gcloud pubsub subscriptions update "$$SUBSCRIPTION" \
               --push-endpoint="$$PUSH_ENDPOINT" \
               --push-auth-service-account="$$INVOKER_SA" \
+              --push-auth-token-audience="$$PUSH_ENDPOINT" \
               --ack-deadline=60 \
               --project=${PROJECT_ID} \
               --quiet
@@ -423,13 +436,24 @@ steps:
               --topic=${_PUBSUB_TOPIC} \
               --push-endpoint="$$PUSH_ENDPOINT" \
               --push-auth-service-account="$$INVOKER_SA" \
+              --push-auth-token-audience="$$PUSH_ENDPOINT" \
               --ack-deadline=60 \
-              --project=${PROJECT_ID}
+              --project=${PROJECT_ID} \
+              $$IMPERSONATE_FLAG
         fi
+
+        # Set PUBSUB_AUDIENCE on the handler to match the subscription audience
+        echo "Setting PUBSUB_AUDIENCE on ${_HANDLER_SERVICE_NAME}..."
+        gcloud run services update ${_HANDLER_SERVICE_NAME} \
+            --region=${_REGION} \
+            --project=${PROJECT_ID} \
+            --update-env-vars="PUBSUB_AUDIENCE=$$PUSH_ENDPOINT" \
+            --quiet
 
         echo "Pub/Sub push subscription configured:"
         echo "  Subscription: $$SUBSCRIPTION"
         echo "  Push endpoint: $$PUSH_ENDPOINT"
+        echo "  Audience: $$PUSH_ENDPOINT"
         echo "  Auth SA: $$INVOKER_SA"
     waitFor: ['deploy-handler']
 
