@@ -4,6 +4,14 @@
     "config:recommended"
   ],
   "enabledManagers": [
-    "tekton"
+    "tekton",
+    "pip_requirements"
+  ],
+  "osvVulnerabilityAlerts": true,
+  "packageRules": [
+    {
+      "matchManagers": ["pip_requirements"],
+      "enabled": false
+    }
   ]
 }
