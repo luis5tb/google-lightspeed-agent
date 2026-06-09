@@ -91,6 +91,7 @@ jobs:
               - 'agent.py'
             pyproject:
               - 'pyproject.toml'
+              - 'requirements-*.txt'
 
   lock-file-check:
     name: Lock file verification
