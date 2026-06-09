@@ -13,7 +13,7 @@ def main() -> None:
     log_level = os.getenv("LOG_LEVEL", "INFO").upper()
     log_format = os.getenv("LOG_FORMAT", "text")
 
-    handler = logging.StreamHandler(sys.stdout)
+    handler = logging.StreamHandler(sys.stdout)  # stdout for container log collectors
 
     if log_format == "json":
         from pythonjsonlogger.json import JsonFormatter
@@ -28,8 +28,6 @@ def main() -> None:
                 },
             )
         )
-
-    if log_format == "json":
         logging.basicConfig(level=log_level, handlers=[handler])
     else:
         logging.basicConfig(

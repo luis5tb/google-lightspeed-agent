@@ -191,9 +191,10 @@ class Settings(BaseSettings):
         "Required behind load balancers (GCLB, OpenShift Routes).",
     )
     forwarded_allow_ips: str = Field(
-        default="*",
+        default="",
         description="Comma-separated list of trusted proxy IPs for forwarded headers. "
-        "'*' trusts all proxies (safe when ingress is restricted to the load balancer).",
+        "'*' trusts all proxies. Empty disables proxy trust (safe for development). "
+        "Set to '*' in production behind a load balancer (GCLB, OpenShift Routes).",
     )
 
     # Marketplace Handler Configuration
