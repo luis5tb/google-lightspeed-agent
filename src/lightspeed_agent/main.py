@@ -18,6 +18,7 @@ def setup_logging() -> None:
     handler = logging.StreamHandler(sys.stdout)
     handler.addFilter(AuditContextFilter())
 
+    level = getattr(logging, settings.log_level.upper())
     if settings.log_format == "json":
         from pythonjsonlogger.json import JsonFormatter
 
@@ -32,9 +33,6 @@ def setup_logging() -> None:
                 },
             )
         )
-
-    level = getattr(logging, settings.log_level.upper())
-    if settings.log_format == "json":
         logging.basicConfig(level=level, handlers=[handler])
     else:
         logging.basicConfig(
