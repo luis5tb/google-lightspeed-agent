@@ -120,9 +120,7 @@ class ProcurementService:
 
     # Account lifecycle handlers
 
-    async def _handle_account_creation_requested(
-        self, event: ProcurementEvent
-    ) -> None:
+    async def _handle_account_creation_requested(self, event: ProcurementEvent) -> None:
         """Handle ACCOUNT_CREATION_REQUESTED event.
 
         The Procurement API requires the account to be approved before any
@@ -147,9 +145,7 @@ class ProcurementService:
 
     # Entitlement lifecycle handlers
 
-    async def _handle_entitlement_creation_requested(
-        self, event: ProcurementEvent
-    ) -> None:
+    async def _handle_entitlement_creation_requested(self, event: ProcurementEvent) -> None:
         """Handle ENTITLEMENT_CREATION_REQUESTED event.
 
         This creates a pending entitlement and optionally auto-approves it.
@@ -254,9 +250,7 @@ class ProcurementService:
             await self._entitlement_repo.update(entitlement)
             logger.info("Entitlement renewed: %s", event.entitlement.id)
 
-    async def _handle_entitlement_offer_accepted(
-        self, event: ProcurementEvent
-    ) -> None:
+    async def _handle_entitlement_offer_accepted(self, event: ProcurementEvent) -> None:
         """Handle ENTITLEMENT_OFFER_ACCEPTED event.
 
         This event is sent when a customer accepts an offer. The provider
@@ -444,21 +438,16 @@ class ProcurementService:
         except GMAClientError as e:
             if e.status_code and e.status_code < 500:
                 logger.error(
-                    "Non-retryable GMA error deleting OAuth client for order %s "
-                    "(status=%s): %s",
+                    "Non-retryable GMA error deleting OAuth client for order %s (status=%s): %s",
                     order_id,
                     e.status_code,
                     e,
                 )
                 return
-            logger.exception(
-                "Failed to delete OAuth client for order %s", order_id
-            )
+            logger.exception("Failed to delete OAuth client for order %s", order_id)
             raise
         except Exception:
-            logger.exception(
-                "Failed to delete OAuth client for order %s", order_id
-            )
+            logger.exception("Failed to delete OAuth client for order %s", order_id)
             raise
 
     async def _handle_offer_ended(self, event: ProcurementEvent) -> None:
@@ -468,9 +457,7 @@ class ProcurementService:
 
     # Procurement API operations
 
-    async def _resolve_account_id(
-        self, entitlement_id: str, event: ProcurementEvent
-    ) -> str | None:
+    async def _resolve_account_id(self, entitlement_id: str, event: ProcurementEvent) -> str | None:
         """Resolve the account ID for an entitlement.
 
         Pub/Sub events often arrive with an empty account field.  When that

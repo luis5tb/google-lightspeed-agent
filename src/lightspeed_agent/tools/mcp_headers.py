@@ -4,6 +4,7 @@ import logging
 from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
+from urllib.parse import urlparse
 
 from lightspeed_agent.auth.middleware import (
     get_request_access_token,
@@ -31,6 +32,15 @@ def create_mcp_header_provider() -> Callable[["ReadonlyContext"], dict[str, str]
     """
 
     audit_enabled = get_settings().audit_logging_enabled
+    # TODO: Implement RFC 8693 token exchange for production deployments
+    # to obtain a scoped token instead of forwarding the full-scope JWT.
+    mcp_url = get_settings().mcp_server_url
+    parsed = urlparse(mcp_url)
+    if parsed.hostname not in ('localhost', '127.0.0.1', '::1'):
+        logger.warning(
+            'Forwarding full-scope JWT to non-localhost MCP server. '
+            'Consider implementing token exchange (RFC 8693) for production.',
+        )
 
     def header_provider(context: "ReadonlyContext") -> dict[str, str]:
         """Provide headers for MCP requests.
@@ -74,9 +84,7 @@ def create_mcp_header_provider() -> Callable[["ReadonlyContext"], dict[str, str]
                 )
             return {"Authorization": f"Bearer {token}"}
 
-        logger.warning(
-            "No MCP credentials available: no access token in request context"
-        )
+        logger.warning("No MCP credentials available: no access token in request context")
         return {}
 
     return header_provider

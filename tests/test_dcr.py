@@ -21,8 +21,8 @@ from lightspeed_agent.dcr.models import (
 )
 from lightspeed_agent.dcr.repository import DCRClientRepository
 from lightspeed_agent.dcr.service import DCRService
-from lightspeed_agent.marketplace.models import Account, AccountState, Entitlement, EntitlementState
-from lightspeed_agent.marketplace.repository import AccountRepository, EntitlementRepository
+from lightspeed_agent.marketplace.models import Entitlement, EntitlementState
+from lightspeed_agent.marketplace.repository import EntitlementRepository
 from lightspeed_agent.marketplace.service import ProcurementService
 
 
@@ -131,21 +131,13 @@ class TestDCRService:
     @pytest_asyncio.fixture
     async def service(self, db_session):
         """Create a fresh DCR service with database-backed repositories."""
-        account_repo = AccountRepository()
         entitlement_repo = EntitlementRepository()
         client_repo = DCRClientRepository()
         procurement_service = ProcurementService(
             entitlement_repo=entitlement_repo,
         )
 
-        # Pre-populate with valid account and order
-        account = Account(
-            id="valid-account-123",
-            provider_id="provider-456",
-            state=AccountState.ACTIVE,
-        )
-        await account_repo.create(account)
-
+        # Pre-populate with valid order
         entitlement = Entitlement(
             id="valid-order-789",
             account_id="valid-account-123",
@@ -250,6 +242,124 @@ class TestDCRServiceDelete:
         # No error raised
 
 
+class TestDCRServiceConcurrentRace:
+    """Tests for DCR service concurrent request handling."""
+
+    @pytest_asyncio.fixture
+    async def service(self, db_session):
+        """Create a DCR service with real repository and mock GMA client."""
+        entitlement_repo = EntitlementRepository()
+        client_repo = DCRClientRepository()
+        procurement_service = ProcurementService(
+            entitlement_repo=entitlement_repo,
+        )
+
+        entitlement = Entitlement(
+            id="race-order-789",
+            account_id="race-account-123",
+            provider_id="provider-456",
+            state=EntitlementState.ACTIVE,
+        )
+        await entitlement_repo.create(entitlement)
+
+        svc = DCRService(
+            procurement_service=procurement_service,
+            client_repository=client_repo,
+        )
+        return svc
+
+    @pytest.mark.asyncio
+    async def test_concurrent_race_cleans_up_orphaned_gma_client(self, service):
+        """Test that losing a concurrent DB insert cleans up the orphaned GMA client."""
+        from lightspeed_agent.dcr.gma_client import GMAClientResponse
+
+        claims = GoogleJWTClaims(
+            iss="https://accounts.google.com",
+            iat=int(time.time()),
+            exp=int(time.time()) + 3600,
+            aud="https://example.com",
+            sub="race-account-123",
+            google={"order": "race-order-789"},
+            auth_app_redirect_uris=["https://example.com/callback"],
+        )
+
+        # Pre-seed a "winner" client in the DB (simulates request A winning the race)
+        winner_secret = service._encrypt_secret("winner-secret")
+        await service._client_repository.create(
+            client_id="winner-client-id",
+            client_secret_encrypted=winner_secret,
+            order_id="race-order-789",
+            account_id="race-account-123",
+            redirect_uris=["https://example.com/callback"],
+            grant_types=["authorization_code", "refresh_token", "client_credentials"],
+            metadata={},
+        )
+
+        # Mock GMA client: create_tenant returns a DIFFERENT client_id (the loser's)
+        mock_gma = AsyncMock()
+        mock_gma.create_tenant.return_value = GMAClientResponse(
+            client_id="loser-client-id",
+            client_secret="loser-secret",
+            name="lightspeed-race-order-789",
+        )
+        service._gma_client = mock_gma
+
+        # Call _create_real_client — repository.create() will hit IntegrityError
+        # and return the winner's record. The service should detect the mismatch
+        # and delete the orphaned GMA client.
+        result = await service._create_real_client(claims)
+
+        # Should return the winner's credentials
+        assert isinstance(result, DCRResponse)
+        assert result.client_id == "winner-client-id"
+
+        # Should have cleaned up the orphaned GMA client
+        mock_gma.delete_tenant.assert_awaited_once_with("loser-client-id")
+
+    @pytest.mark.asyncio
+    async def test_concurrent_race_cleanup_failure_still_returns_existing(self, service):
+        """Test that GMA cleanup failure doesn't break the response."""
+        from lightspeed_agent.dcr.gma_client import GMAClientResponse
+
+        claims = GoogleJWTClaims(
+            iss="https://accounts.google.com",
+            iat=int(time.time()),
+            exp=int(time.time()) + 3600,
+            aud="https://example.com",
+            sub="race-account-123",
+            google={"order": "race-order-789"},
+            auth_app_redirect_uris=["https://example.com/callback"],
+        )
+
+        winner_secret = service._encrypt_secret("winner-secret")
+        await service._client_repository.create(
+            client_id="winner-client-id",
+            client_secret_encrypted=winner_secret,
+            order_id="race-order-789",
+            account_id="race-account-123",
+            redirect_uris=["https://example.com/callback"],
+            grant_types=["authorization_code", "refresh_token", "client_credentials"],
+            metadata={},
+        )
+
+        mock_gma = AsyncMock()
+        mock_gma.create_tenant.return_value = GMAClientResponse(
+            client_id="loser-client-id",
+            client_secret="loser-secret",
+            name="lightspeed-race-order-789",
+        )
+        # Simulate GMA cleanup failure
+        mock_gma.delete_tenant.side_effect = Exception("GMA API unreachable")
+        service._gma_client = mock_gma
+
+        result = await service._create_real_client(claims)
+
+        # Should still return the winner's credentials despite cleanup failure
+        assert isinstance(result, DCRResponse)
+        assert result.client_id == "winner-client-id"
+        mock_gma.delete_tenant.assert_awaited_once_with("loser-client-id")
+
+
 class TestDCRRepository:
     """Tests for DCR client repository with database."""
 
@@ -350,7 +460,7 @@ class TestDCRRouter:
 
 
 class TestPubSubHandler:
-    """Tests for Pub/Sub event handling via the /dcr endpoint."""
+    """Tests for Pub/Sub event handling via the /pubsub endpoint."""
 
     @pytest_asyncio.fixture
     async def client(self, db_session):
@@ -386,6 +496,18 @@ class TestPubSubHandler:
             }
         }
 
+    def _post_pubsub(self, client, body):
+        """POST to /pubsub with a mocked valid Google OIDC token."""
+        with patch(
+            "lightspeed_agent.marketplace.router.google_id_token.verify_oauth2_token",
+            return_value={"iss": "accounts.google.com", "sub": "test"},
+        ):
+            return client.post(
+                "/pubsub",
+                json=body,
+                headers={"Authorization": "Bearer valid-oidc-token"},
+            )
+
     @pytest.mark.asyncio
     async def test_entitlement_active_returns_success_with_order_id(self, client):
         """Test that ENTITLEMENT_ACTIVE returns status=success and orderId."""
@@ -399,7 +521,7 @@ class TestPubSubHandler:
             },
         }
 
-        response = client.post("/dcr", json=self._make_pubsub_body(event_data))
+        response = self._post_pubsub(client, self._make_pubsub_body(event_data))
 
         assert response.status_code == 200
         data = response.json()
@@ -424,7 +546,7 @@ class TestPubSubHandler:
             new_callable=AsyncMock,
             return_value=mock_response,
         ) as mock_post:
-            response = client.post("/dcr", json=self._make_pubsub_body(event_data))
+            response = self._post_pubsub(client, self._make_pubsub_body(event_data))
 
         assert response.status_code == 200
         data = response.json()
@@ -458,7 +580,7 @@ class TestPubSubHandler:
             patch("httpx.AsyncClient.post", new_callable=AsyncMock, return_value=mock_post),
             patch("httpx.AsyncClient.get", new_callable=AsyncMock, return_value=mock_get),
         ):
-            response = client.post("/dcr", json=self._make_pubsub_body(event_data))
+            response = self._post_pubsub(client, self._make_pubsub_body(event_data))
 
         assert response.status_code == 200
         data = response.json()
@@ -475,7 +597,7 @@ class TestPubSubHandler:
             }
         }
 
-        response = client.post("/dcr", json=body)
+        response = self._post_pubsub(client, body)
 
         assert response.status_code == 200
         data = response.json()
@@ -491,7 +613,7 @@ class TestPubSubHandler:
             "entitlement": {"id": "order-1", "product": "products/test-product"},
         }
 
-        response = client.post("/dcr", json=self._make_pubsub_body(event_data))
+        response = self._post_pubsub(client, self._make_pubsub_body(event_data))
 
         assert response.status_code == 200
         data = response.json()
@@ -506,7 +628,7 @@ class TestPubSubHandler:
             "providerId": "test-provider",
         }
 
-        response = client.post("/dcr", json=self._make_pubsub_body(event_data))
+        response = self._post_pubsub(client, self._make_pubsub_body(event_data))
 
         assert response.status_code == 200
         data = response.json()
@@ -523,18 +645,11 @@ class TestPubSubHandler:
             }
         }
 
-        response = client.post("/dcr", json=body)
+        response = self._post_pubsub(client, body)
 
         assert response.status_code == 400
         data = response.json()
         assert "error" in data
-
-    @pytest.mark.asyncio
-    async def test_unknown_request_format(self, client):
-        """Test that requests without software_statement or message return 400."""
-        response = client.post("/dcr", json={"foo": "bar"})
-
-        assert response.status_code == 400
 
     # Product filtering tests
 
@@ -557,7 +672,7 @@ class TestPubSubHandler:
                 },
             }
 
-            response = client.post("/dcr", json=self._make_pubsub_body(event_data))
+            response = self._post_pubsub(client, self._make_pubsub_body(event_data))
 
             assert response.status_code == 200
             data = response.json()
@@ -585,7 +700,7 @@ class TestPubSubHandler:
                 },
             }
 
-            response = client.post("/dcr", json=self._make_pubsub_body(event_data))
+            response = self._post_pubsub(client, self._make_pubsub_body(event_data))
 
             assert response.status_code == 200
             data = response.json()
@@ -613,7 +728,7 @@ class TestPubSubHandler:
                 },
             }
 
-            response = client.post("/dcr", json=self._make_pubsub_body(event_data))
+            response = self._post_pubsub(client, self._make_pubsub_body(event_data))
 
             assert response.status_code == 200
             data = response.json()
@@ -634,7 +749,7 @@ class TestPubSubHandler:
             },
         }
 
-        response = client.post("/dcr", json=self._make_pubsub_body(event_data))
+        response = self._post_pubsub(client, self._make_pubsub_body(event_data))
 
         assert response.status_code == 200
         data = response.json()

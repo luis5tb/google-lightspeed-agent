@@ -65,24 +65,18 @@ class AgentLoggingPlugin(BasePlugin):
 
     # -- run lifecycle --------------------------------------------------------
 
-    async def before_run_callback(
-        self, *, invocation_context: InvocationContext
-    ) -> None:
+    async def before_run_callback(self, *, invocation_context: InvocationContext) -> None:
         logger.info(
-            "Agent run started "
-            "(event_type=agent_run_started, invocation_id=%s, agent=%s, %s)",
+            "Agent run started (event_type=agent_run_started, invocation_id=%s, agent=%s, %s)",
             invocation_context.invocation_id,
-            invocation_context.agent.name,
+            invocation_context.agent.name if invocation_context.agent else "unknown",
             self._audit_fields(),
         )
         return None
 
-    async def after_run_callback(
-        self, *, invocation_context: InvocationContext
-    ) -> None:
+    async def after_run_callback(self, *, invocation_context: InvocationContext) -> None:
         logger.info(
-            "Agent run completed "
-            "(event_type=agent_run_completed, invocation_id=%s, %s)",
+            "Agent run completed (event_type=agent_run_completed, invocation_id=%s, %s)",
             invocation_context.invocation_id,
             self._audit_fields(),
         )
@@ -148,16 +142,14 @@ class AgentLoggingPlugin(BasePlugin):
         tool_name = getattr(tool, "name", type(tool).__name__)
         if self._is_detailed():
             logger.info(
-                "Tool call started "
-                "(event_type=tool_call_started, tool=%s, args=%s, %s)",
+                "Tool call started (event_type=tool_call_started, tool=%s, args=%s, %s)",
                 tool_name,
                 _truncate(tool_args),
                 self._audit_fields(),
             )
         else:
             logger.info(
-                "Tool call started "
-                "(event_type=tool_call_started, tool=%s, %s)",
+                "Tool call started (event_type=tool_call_started, tool=%s, %s)",
                 tool_name,
                 self._audit_fields(),
             )
@@ -184,8 +176,7 @@ class AgentLoggingPlugin(BasePlugin):
             )
         else:
             logger.info(
-                "Tool call completed "
-                "(event_type=tool_call_completed, tool=%s, data_source=%s, %s)",
+                "Tool call completed (event_type=tool_call_completed, tool=%s, data_source=%s, %s)",
                 tool_name,
                 tool_name,
                 self._audit_fields(),
@@ -202,8 +193,7 @@ class AgentLoggingPlugin(BasePlugin):
     ) -> dict[str, Any] | None:
         tool_name = getattr(tool, "name", type(tool).__name__)
         logger.error(
-            "Tool call failed "
-            "(event_type=tool_call_failed, tool=%s, error=%s, %s)",
+            "Tool call failed (event_type=tool_call_failed, tool=%s, error=%s, %s)",
             tool_name,
             error,
             self._audit_fields(),

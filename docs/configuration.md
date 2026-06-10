@@ -6,7 +6,73 @@ This document describes all configuration options for the Lightspeed Agent.
 
 Configuration is managed through environment variables. Copy `.env.example` to `.env` and customize for your environment.
 
-### Google AI / Gemini
+### LLM Provider
+
+The agent supports multiple LLM backends via Google ADK. By default it uses Gemini, but you can switch to any provider supported by [LiteLLM](https://docs.litellm.ai/docs/providers) (OpenAI, Anthropic, Azure, self-hosted models, etc.).
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `LLM_PROVIDER` | `gemini` | LLM provider backend: `gemini` (Google AI Studio or Vertex AI) or `litellm` (100+ providers via LiteLLM) |
+| `LLM_MODEL` | - | Model name override. For `gemini`: overrides `GEMINI_MODEL` if set. For `litellm`: required, uses `provider/model` format (e.g., `openai/gpt-4o`) |
+| `LLM_API_KEY` | - | API key for non-Google LLM providers (`litellm` only). Some providers also accept their own env vars (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, etc.) |
+| `LLM_API_BASE` | - | Custom API endpoint URL (`litellm` only). For self-hosted models or proxy endpoints |
+
+**Default (Gemini — no changes needed):**
+
+```bash
+# These are the defaults; no LLM_* variables required
+LLM_PROVIDER=gemini
+GEMINI_MODEL=gemini-2.5-flash
+```
+
+**Different Gemini model:**
+
+```bash
+LLM_MODEL=gemini-2.0-flash
+```
+
+**OpenAI:**
+
+```bash
+LLM_PROVIDER=litellm
+LLM_MODEL=openai/gpt-4o
+LLM_API_KEY=sk-your-openai-key    # or set OPENAI_API_KEY env var
+```
+
+**Anthropic:**
+
+```bash
+LLM_PROVIDER=litellm
+LLM_MODEL=anthropic/claude-sonnet-4-20250514
+LLM_API_KEY=sk-ant-your-key       # or set ANTHROPIC_API_KEY env var
+```
+
+**Claude on Vertex AI:**
+
+```bash
+LLM_PROVIDER=litellm
+LLM_MODEL=vertex_ai/claude-3-5-sonnet-v2@20241022
+GOOGLE_CLOUD_PROJECT=your-project-id
+GOOGLE_CLOUD_LOCATION=us-east5
+```
+
+**Custom / self-hosted endpoint (e.g., vLLM, Ollama, OpenRouter):**
+
+```bash
+LLM_PROVIDER=litellm
+LLM_MODEL=openai/my-model
+LLM_API_BASE=http://localhost:8080/v1
+LLM_API_KEY=sk-xxx
+```
+
+> **Notes:**
+> - Gemini HTTP retry settings (`GEMINI_HTTP_RETRY_*`) only apply when `LLM_PROVIDER=gemini`.
+> - Google's built-in ADK tools (e.g., `SearchTool`) only work with Gemini models. MCP tools work with all providers.
+> - For available LiteLLM model strings, see [LiteLLM providers](https://docs.litellm.ai/docs/providers).
+
+### Google AI / Gemini (provider-specific)
+
+These settings apply when `LLM_PROVIDER=gemini` (the default).
 
 | Variable | Default | Description |
 |----------|---------|-------------|
@@ -14,7 +80,7 @@ Configuration is managed through environment variables. Copy `.env.example` to `
 | `GOOGLE_API_KEY` | - | Google AI Studio API key (required if not using Vertex AI) |
 | `GOOGLE_CLOUD_PROJECT` | - | GCP project ID (required for Vertex AI) |
 | `GOOGLE_CLOUD_LOCATION` | `global` | Vertex AI model location (use `global` for pay-as-you-go) |
-| `GEMINI_MODEL` | `gemini-2.5-flash` | Gemini model to use |
+| `GEMINI_MODEL` | `gemini-2.5-flash` | Gemini model to use (overridden by `LLM_MODEL` if set) |
 | `GEMINI_HTTP_RETRY_ATTEMPTS` | `5` | Max HTTP attempts per model call (including the first). Use `1` to disable SDK retries. Aligns with [google-genai defaults](https://cloud.google.com/vertex-ai/generative-ai/docs/retry-strategy). |
 | `GEMINI_HTTP_RETRY_INITIAL_DELAY` | `1.0` | Initial backoff delay in seconds (exponential backoff with jitter). |
 | `GEMINI_HTTP_RETRY_MAX_DELAY` | `60.0` | Maximum delay in seconds between retries. |
@@ -46,7 +112,7 @@ GOOGLE_CLOUD_LOCATION=global
 | `RED_HAT_SSO_CLIENT_ID` | - | Resource Server client ID (used for token introspection) |
 | `RED_HAT_SSO_CLIENT_SECRET` | - | Resource Server client secret |
 | `AGENT_REQUIRED_SCOPE` | `api.console,api.ocm` | Comma-separated OAuth scopes required in access tokens |
-| `AGENT_ALLOWED_SCOPES` | `openid,profile,email,api.console,api.ocm` | Comma-separated allowlist of permitted scopes. Tokens with scopes outside this list are rejected (403). |
+| `AGENT_ALLOWED_SCOPES` | `openid,profile,email,api.console,api.ocm,metering:admin` | Comma-separated allowlist of permitted scopes. Tokens with scopes outside this list are rejected (403). |
 
 **Example:**
 
@@ -93,6 +159,7 @@ MCP_READ_ONLY=true
 | `AGENT_DESCRIPTION` | Red Hat Lightspeed Agent for Google Cloud | Agent description |
 | `AGENT_HOST` | `0.0.0.0` | Server bind address |
 | `AGENT_PORT` | `8000` | Server port |
+| `SKILLS_DIR` | - | Path to external ADK AI Skills directory. When set, skills from this directory are loaded alongside the bundled defaults; external skills with the same name override bundled ones. Useful for mounting deployment-specific skills via ConfigMap or volume. |
 
 **Example:**
 
@@ -101,6 +168,7 @@ AGENT_PROVIDER_URL=https://lightspeed-agent.example.com
 AGENT_NAME=lightspeed_agent
 AGENT_HOST=0.0.0.0
 AGENT_PORT=8000
+SKILLS_DIR=/opt/agent-skills  # Optional: load custom skills from this directory
 ```
 
 ### Database
@@ -108,6 +176,7 @@ AGENT_PORT=8000
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `DATABASE_URL` | `sqlite+aiosqlite:///./lightspeed_agent.db` | Marketplace database connection URL (orders, DCR clients, auth) |
+| `DATABASE_REQUIRE_SSL` | `false` | Require SSL/TLS for PostgreSQL connections. Applies to both `DATABASE_URL` and `SESSION_DATABASE_URL`. Not needed for Cloud SQL Proxy (encryption at infrastructure layer). |
 | `SESSION_BACKEND` | `memory` | Session storage backend: `memory` (in-memory, no persistence) or `database` (PostgreSQL, persistent) |
 | `SESSION_DATABASE_URL` | *(empty)* | Session database URL for ADK sessions. Required when `SESSION_BACKEND=database`. |
 
@@ -152,6 +221,22 @@ This separation ensures:
 - Agents only access session data, not marketplace/auth data
 - Compromised agents can't access DCR credentials or order information
 - Different retention policies can be applied to sessions vs. marketplace data
+
+**SSL/TLS Encryption (Direct TCP Connections):**
+
+When connecting to PostgreSQL over direct TCP (not Cloud SQL Proxy), enable SSL to encrypt
+database traffic in transit:
+
+```bash
+DATABASE_REQUIRE_SSL=true
+```
+
+This adds `ssl=True` to the `asyncpg` connection arguments for both `DATABASE_URL` and
+`SESSION_DATABASE_URL`. The agent logs a warning at startup if this setting is disabled
+on Cloud Run with a PostgreSQL URL.
+
+> **Cloud SQL Proxy:** If using Cloud SQL Proxy, SSL is provided at the infrastructure layer
+> by the proxy itself. `DATABASE_REQUIRE_SSL` is not needed and can remain `false`.
 
 **Switching to In-Memory Sessions:**
 
@@ -218,6 +303,30 @@ RATE_LIMIT_REQUESTS_PER_HOUR=2000
 ```
 
 See [Rate Limiting](rate-limiting.md) for details on the sliding window algorithm.
+
+### Google Cloud Pub/Sub
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `PUBSUB_AUDIENCE` | *(empty)* | Expected audience in Google Cloud Pub/Sub OIDC tokens. Set to the marketplace handler's URL for strict token binding. If empty, tokens are verified for signature/expiry but not audience. |
+
+### Load Balancer (Cloud Run Only)
+
+Optional per-service Google Cloud Load Balancers (GCLB) provide SSL termination, DDoS protection, and Cloud Armor WAF. See [Cloud Run deployment](../deploy/cloudrun/README.md#load-balancer-optional) for full details.
+
+> **OpenShift deployments** use Routes for TLS termination instead of GCLB. These variables do not apply. See [OpenShift deployment](../deploy/openshift/README.md) for OCP-specific configuration.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `ENABLE_LB_AGENT` | `false` | Enable GCLB for the agent service |
+| `AGENT_DOMAIN_NAME` | - | Domain for the agent SSL certificate. Required when `ENABLE_LB_AGENT=true` |
+| `ENABLE_LB_HANDLER` | `false` | Enable GCLB for the marketplace handler |
+| `HANDLER_DOMAIN_NAME` | - | Domain for the handler SSL certificate. Required when `ENABLE_LB_HANDLER=true` |
+| `ENABLE_CLOUD_ARMOR_AGENT` | `false` | Enable Cloud Armor WAF for the agent LB. Requires `ENABLE_LB_AGENT=true` |
+| `ENABLE_CLOUD_ARMOR_HANDLER` | `false` | Enable Cloud Armor WAF for the handler LB. Requires `ENABLE_LB_HANDLER=true` |
+| `LB_NAME` | `lightspeed-lb` | Prefix for all load balancer resource names |
+
+When a service's LB is enabled, `deploy.sh` automatically sets `AGENT_PROVIDER_URL` and/or `MARKETPLACE_HANDLER_URL` to the GCLB domain(s) so the AgentCard advertises the correct externally-reachable URLs. When LBs are not enabled, `deploy.sh` sets Cloud Run ingress to `all` so external traffic is not blocked.
 
 ### Google Cloud Service Control
 
@@ -341,12 +450,15 @@ gcloud logging read 'jsonPayload.org_id="org-7" AND jsonPayload.message=~"mcp_jw
 |----------|---------|-------------|
 | `DEBUG` | `false` | Enable debug mode (exposes /docs) |
 | `SKIP_JWT_VALIDATION` | `false` | Skip JWT validation (dev only!) |
+| `SKIP_ORDER_VALIDATION` | `false` | Skip marketplace order-id validation. JWT introspection still occurs but the entitlement check is skipped. Blocked in Cloud Run (`K_SERVICE` check). Use for deployments without a marketplace handler (e.g., OpenShift hybrid mode). |
+| `SKIP_DCR_JWT_VALIDATION` | `false` | Skip DCR `software_statement` JWT signature verification. Accepts self-signed JWTs for DCR requests. Does not affect agent Bearer token auth. |
 
 **Development:**
 
 ```bash
 DEBUG=true
 SKIP_JWT_VALIDATION=true
+SKIP_ORDER_VALIDATION=true    # No marketplace handler in dev
 LOG_LEVEL=DEBUG
 LOG_FORMAT=text
 AGENT_LOGGING_DETAIL=detailed
@@ -380,7 +492,7 @@ Project metadata and dependencies. Modify to add/update dependencies:
 ```toml
 [project]
 dependencies = [
-    "google-adk>=0.5.0",
+    "google-adk>=1.25.0,<2.0.0",
     # Add more dependencies here
 ]
 ```
@@ -463,6 +575,7 @@ google_api_key
 # .env.development
 DEBUG=true
 SKIP_JWT_VALIDATION=true
+SKIP_ORDER_VALIDATION=true    # No marketplace handler in dev
 LOG_LEVEL=DEBUG
 LOG_FORMAT=text
 AGENT_LOGGING_DETAIL=detailed

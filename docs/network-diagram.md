@@ -37,7 +37,7 @@ graph TB
 
     subgraph "Marketplace Handler Pod"
         direction TB
-        MKTPLACE["Marketplace Handler<br/>FastAPI :8001<br/>Probes :8003<br/>─────────────<br/>POST /dcr (hybrid)<br/>─────────────<br/>:8003 GET /health, /ready"]
+        MKTPLACE["Marketplace Handler<br/>FastAPI :8001<br/>Probes :8003<br/>─────────────<br/>POST /dcr<br/>POST /pubsub (OIDC)<br/>─────────────<br/>:8003 GET /health, /ready"]
 
         MKDB[("Marketplace DB<br/>PostgreSQL :5432<br/>─────────────<br/>accounts, entitlements<br/>DCR clients, usage")]
     end
@@ -48,11 +48,21 @@ graph TB
         REDIS[("Redis :6379<br/>─────────────<br/>Rate limiting<br/>60 req/min<br/>1000 req/hr")]
     end
 
+    subgraph "Per-Service Load Balancers (Optional)"
+        AGENT_LB["Agent LB<br/>HTTPS :443<br/>─────────────<br/>SSL termination<br/>Cloud Armor WAF<br/>DDoS protection"]
+        HANDLER_LB["Handler LB<br/>HTTPS :443<br/>─────────────<br/>SSL termination<br/>Cloud Armor WAF<br/>DDoS protection"]
+    end
+
     %% === INGRESS (External → Services) ===
-    CLIENT -- "HTTPS :8000<br/>POST / (A2A JSON-RPC)<br/>Bearer JWT" --> AGENT
-    CLIENT -- "HTTPS :8000<br/>GET /.well-known/agent.json" --> AGENT
-    CLIENT -- "HTTPS :8001<br/>POST /dcr" --> MKTPLACE
-    PUBSUB -- "HTTPS :8001<br/>POST /dcr (Pub/Sub msg)" --> MKTPLACE
+    %% Without GCLB: CLIENT connects directly to AGENT :8000 and MKTPLACE :8001
+    %% With GCLB (shown below): external traffic goes through LBs on :443
+    CLIENT -- "HTTPS :443<br/>POST / (A2A JSON-RPC)<br/>Bearer JWT" --> AGENT_LB
+    CLIENT -- "HTTPS :443<br/>GET /.well-known/agent.json" --> AGENT_LB
+    CLIENT -- "HTTPS :443<br/>POST /dcr" --> HANDLER_LB
+    AGENT_LB -- ":8000" --> AGENT
+    HANDLER_LB -- ":8001" --> MKTPLACE
+    %% Pub/Sub is internal traffic — bypasses LBs
+    PUBSUB -- "HTTPS :8001<br/>POST /pubsub (OIDC)<br/>(internal, bypasses LB)" --> MKTPLACE
 
     %% === INTER-COMPONENT (Internal) ===
     AGENT -- "HTTP :8080/:8081<br/>/mcp<br/>+ JWT forwarding" --> MCP
@@ -95,13 +105,15 @@ graph TB
 
 | Port | Protocol | Component | Direction | Purpose |
 |------|----------|-----------|-----------|---------|
+| **443** | HTTPS | Agent GCLB (optional) | **Ingress** | SSL termination, Cloud Armor WAF → forwards to Agent :8000 |
+| **443** | HTTPS | Handler GCLB (optional) | **Ingress** | SSL termination, Cloud Armor WAF → forwards to Handler :8001 |
 | **8000** | HTTP/S | Agent Service | **Ingress** | A2A JSON-RPC, AgentCard, service-control admin |
 | **8001** | HTTP/S | Marketplace Handler | **Ingress** | DCR registration, Pub/Sub provisioning events |
 | **8002** | HTTP | Agent Probe Server | **Ingress** | Agent health (`/health`) and readiness (`/ready`) probes |
 | **8003** | HTTP | Handler Probe Server | **Ingress** | Handler health (`/health`) and readiness (`/ready`) probes |
 | **8080** | HTTP | MCP Sidecar (Cloud Run) | **Internal** | Agent to MCP tool calls with JWT forwarding |
 | **8081** | HTTP | MCP Sidecar (Podman) | **Internal** | Agent to MCP tool calls with JWT forwarding |
-| **5432** | TCP | PostgreSQL (Marketplace) | **Internal** | Accounts, entitlements, DCR clients, usage records |
+| **5432** | TCP | PostgreSQL (Marketplace) | **Internal** | Entitlements, DCR clients, usage records |
 | **5433** | TCP | PostgreSQL (Sessions) | **Internal** | ADK conversation session persistence |
 | **6379** | TCP | Redis | **Internal** | Distributed rate limiting (Lua scripts) |
 | **443** | HTTPS | Red Hat SSO | **Egress** | OAuth2 token validation and introspection |
@@ -122,8 +134,12 @@ graph TB
 
 2. **JWT token chain** -- External client sends Bearer JWT to Agent (:8000), which validates it via Red Hat SSO, then forwards the same JWT to MCP Sidecar, which uses it to authenticate with console.redhat.com on the user's behalf.
 
-3. **Hybrid DCR endpoint** -- Port 8001's `/dcr` route discriminates between direct DCR requests (from Gemini Enterprise with `software_statement`) and Pub/Sub provisioning messages based on request body structure.
+3. **Separate marketplace endpoints** -- Port 8001 exposes `/dcr` for direct DCR requests (from Gemini Enterprise with `software_statement`) and `/pubsub` for Pub/Sub provisioning messages (verified via Google OIDC token).
 
 4. **MCP port varies by deployment** -- Cloud Run uses :8080 (sidecar default), Podman uses :8081 to avoid conflict with A2A Inspector which also binds :8080 in dev.
 
 5. **All external egress is HTTPS :443** -- No non-TLS external connections. Internal connections (DB, Redis, MCP) are unencrypted but within the same pod/VPC.
+
+6. **Optional per-service GCLB** -- When enabled, each service gets its own independent Google Cloud Load Balancer (:443) with SSL termination, Cloud Armor WAF, and DDoS protection. Cloud Run ingress is restricted to `internal-and-cloud-load-balancing`, blocking direct external access. Pub/Sub traffic is internal and bypasses the LBs. See [Cloud Run deployment](../deploy/cloudrun/README.md#load-balancer-optional) for configuration.
+
+7. **OpenShift deployment** -- On OpenShift, ingress uses Routes with TLS edge termination instead of GCLB. NetworkPolicies restrict database and Redis access to authorized pods. The application-level middleware stack (rate limiting, body size limits, security headers, JWT auth) provides the same baseline protection as Cloud Run. See [OpenShift deployment](../deploy/openshift/README.md) for the OCP-specific topology.

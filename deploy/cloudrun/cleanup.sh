@@ -13,7 +13,8 @@
 #   ./deploy/cloudrun/cleanup.sh [--force]
 #
 # Options:
-#   --force    Skip confirmation prompt
+#   --force       Skip confirmation prompt
+#   --purge-data  Also delete CloudSQL and Redis instances (IRREVERSIBLE)
 #
 # Prerequisites:
 #   - gcloud CLI installed and authenticated
@@ -53,8 +54,12 @@ PUBSUB_INVOKER_SA="${PUBSUB_INVOKER_NAME}@${PROJECT_ID}.iam.gserviceaccount.com"
 PUBSUB_TOPIC="${PUBSUB_TOPIC:-marketplace-entitlements}"
 PUBSUB_SUBSCRIPTION="${PUBSUB_SUBSCRIPTION:-${PUBSUB_TOPIC}-sub}"
 
+# Load balancer resource name prefix (used by cleanup_service_lb)
+LB_NAME="${LB_NAME:-lightspeed-lb}"
+
 # Parse arguments
 FORCE=false
+PURGE_DATA=false
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -62,9 +67,13 @@ while [[ $# -gt 0 ]]; do
             FORCE=true
             shift
             ;;
+        --purge-data)
+            PURGE_DATA=true
+            shift
+            ;;
         *)
             log_error "Unknown option: $1"
-            echo "Usage: $0 [--force]"
+            echo "Usage: $0 [--force] [--purge-data]"
             exit 1
             ;;
     esac
@@ -80,22 +89,39 @@ fi
 log_warn "This will delete the following resources from project: $PROJECT_ID"
 echo ""
 echo "  - Cloud Run services: $SERVICE_NAME, $HANDLER_SERVICE_NAME"
+echo "  - Load balancer resources (if any): forwarding rules, HTTPS proxies,"
+echo "    URL maps, SSL certs, backend services, NEGs, static IPs, Cloud Armor policies"
 echo "  - Pub/Sub topic: $PUBSUB_TOPIC"
 echo "  - Pub/Sub subscription: $PUBSUB_SUBSCRIPTION"
 echo "  - Secrets: redhat-sso-client-id, redhat-sso-client-secret, database-url,"
 echo "             session-database-url, gma-client-id, gma-client-secret, dcr-encryption-key,"
-echo "             rate-limit-redis-url"
+echo "             rate-limit-redis-url, redis-ca-cert"
 echo "  - Service accounts: $SERVICE_ACCOUNT"
 echo "                      $PUBSUB_INVOKER_SA"
+if [ "$PURGE_DATA" = true ]; then
+    echo ""
+    log_warn "DATA PURGE ENABLED — the following will also be PERMANENTLY deleted:"
+    echo "  - CloudSQL instance: $DB_INSTANCE_NAME (IRREVERSIBLE DATA LOSS)"
+    echo "  - Cloud Memorystore Redis instances in $REGION (IRREVERSIBLE DATA LOSS)"
+fi
 echo ""
 
 # Confirmation prompt
 if [[ "$FORCE" != "true" ]]; then
-    read -p "Are you sure you want to delete these resources? (y/N) " -n 1 -r
-    echo
-    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-        log_info "Cleanup cancelled"
-        exit 0
+    if [ "$PURGE_DATA" = true ]; then
+        log_warn "⚠️  IRREVERSIBLE DATA LOSS: --purge-data will permanently destroy databases!"
+        read -p "Type 'PURGE' to confirm data destruction, or anything else to cancel: " -r
+        if [[ "$REPLY" != "PURGE" ]]; then
+            log_info "Cleanup cancelled"
+            exit 0
+        fi
+    else
+        read -p "Are you sure you want to delete these resources? (y/N) " -n 1 -r
+        echo
+        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+            log_info "Cleanup cancelled"
+            exit 0
+        fi
     fi
 fi
 
@@ -130,7 +156,39 @@ else
 fi
 
 # =============================================================================
-# Step 2: Delete Pub/Sub Resources
+# Step 2: Delete Load Balancer Resources (per-service)
+# =============================================================================
+# Delete all LB resources for a single service (reverse dependency order).
+# Uses try-delete: nonexistent resources are silently skipped.
+cleanup_service_lb() {
+    local service_label="$1"
+    local p="${LB_NAME}-${service_label}"
+
+    log_info "Cleaning up ${service_label} LB resources..."
+
+    gcloud compute forwarding-rules delete "${p}-forwarding-rule" --global --project="$PROJECT_ID" --quiet 2>/dev/null || true
+    gcloud compute target-https-proxies delete "${p}-https-proxy" --global --project="$PROJECT_ID" --quiet 2>/dev/null || true
+    gcloud compute url-maps delete "${p}-url-map" --global --project="$PROJECT_ID" --quiet 2>/dev/null || true
+    gcloud compute ssl-certificates delete "${p}-cert" --global --project="$PROJECT_ID" --quiet 2>/dev/null || true
+    # Detach Cloud Armor before deleting backend (may have been enabled without the flag)
+    gcloud compute backend-services update "${p}-backend" --security-policy="" --global --project="$PROJECT_ID" 2>/dev/null || true
+    gcloud compute security-policies delete "${p}-security-policy" --global --project="$PROJECT_ID" --quiet 2>/dev/null || true
+    # Remove NEG from backend service before deleting either resource
+    gcloud compute backend-services remove-backend "${p}-backend" \
+        --global --project="$PROJECT_ID" \
+        --network-endpoint-group="${p}-neg" \
+        --network-endpoint-group-region="$REGION" 2>/dev/null || true
+    gcloud compute backend-services delete "${p}-backend" --global --project="$PROJECT_ID" --quiet 2>/dev/null || true
+    gcloud compute network-endpoint-groups delete "${p}-neg" --region="$REGION" --project="$PROJECT_ID" --quiet 2>/dev/null || true
+    gcloud compute addresses delete "${p}-ip" --global --project="$PROJECT_ID" --quiet 2>/dev/null || true
+}
+
+log_info "Cleaning up load balancer resources (if any)..."
+cleanup_service_lb "agent"
+cleanup_service_lb "handler"
+
+# =============================================================================
+# Step 3: Delete Pub/Sub Resources
 # =============================================================================
 log_info "Deleting Pub/Sub resources..."
 
@@ -157,7 +215,7 @@ else
 fi
 
 # =============================================================================
-# Step 3: Delete Secrets
+# Step 4: Delete Secrets
 # =============================================================================
 log_info "Deleting secrets from Secret Manager..."
 
@@ -170,6 +228,7 @@ secrets=(
     "gma-client-secret"
     "dcr-encryption-key"
     "rate-limit-redis-url"
+    "redis-ca-cert"
 )
 
 for secret in "${secrets[@]}"; do
@@ -184,7 +243,7 @@ for secret in "${secrets[@]}"; do
 done
 
 # =============================================================================
-# Step 4: Remove IAM Bindings and Delete Service Account
+# Step 5: Remove IAM Bindings and Delete Service Account
 # =============================================================================
 log_info "Removing service account IAM bindings..."
 
@@ -256,6 +315,31 @@ else
 fi
 
 # =============================================================================
+# Step 6: Purge Data Resources (optional)
+# =============================================================================
+if [ "$PURGE_DATA" = true ]; then
+    echo ""
+    log_info "Purging data resources..."
+    # Delete CloudSQL instance
+    if gcloud sql instances describe "$DB_INSTANCE_NAME" --project="$PROJECT_ID" &>/dev/null; then
+        echo "Deleting CloudSQL instance: $DB_INSTANCE_NAME"
+        if ! gcloud sql instances delete "$DB_INSTANCE_NAME" --project="$PROJECT_ID" --quiet; then
+            log_warn "Failed to delete CloudSQL instance: $DB_INSTANCE_NAME"
+        fi
+    else
+        log_info "CloudSQL instance '$DB_INSTANCE_NAME' does not exist, skipping"
+    fi
+    # Delete Redis instances
+    for instance in $(gcloud redis instances list --region="$REGION" --project="$PROJECT_ID" --format="value(name)" 2>/dev/null); do
+        echo "Deleting Redis instance: $instance"
+        if ! gcloud redis instances delete "$instance" --region="$REGION" --project="$PROJECT_ID" --quiet; then
+            log_warn "Failed to delete Redis instance: $instance"
+        fi
+    done
+    log_info "Data purge complete."
+fi
+
+# =============================================================================
 # Summary
 # =============================================================================
 echo ""
@@ -265,20 +349,29 @@ log_info "=========================================="
 echo ""
 echo "The following resources have been removed:"
 echo "  - Cloud Run services ($SERVICE_NAME, $HANDLER_SERVICE_NAME)"
+echo "  - Load balancer resources (if any existed)"
 echo "  - Pub/Sub topic and subscription"
 echo "  - Secret Manager secrets"
 echo "  - Service accounts (runtime + Pub/Sub invoker) and IAM bindings"
+if [ "$PURGE_DATA" = true ]; then
+    echo "  - CloudSQL instance: $DB_INSTANCE_NAME"
+    echo "  - Cloud Memorystore Redis instances in $REGION"
+fi
 echo ""
 echo "Note: The following resources were NOT deleted (delete manually if needed):"
-echo "  - Cloud SQL instances"
-echo "  - Cloud Memorystore Redis instances"
+if [ "$PURGE_DATA" != true ]; then
+    echo "  - Cloud SQL instances"
+    echo "  - Cloud Memorystore Redis instances"
+fi
 echo "  - Container images in GCR/Artifact Registry"
 echo "  - VPC connectors"
 echo "  - Cloud Build triggers"
 echo ""
 echo "To delete these, use the respective gcloud commands:"
-echo "  gcloud sql instances delete $DB_INSTANCE_NAME --project=$PROJECT_ID"
-echo "  gcloud redis instances delete lightspeed-redis --region=$REGION --project=$PROJECT_ID"
+if [ "$PURGE_DATA" != true ]; then
+    echo "  gcloud sql instances delete $DB_INSTANCE_NAME --project=$PROJECT_ID"
+    echo "  gcloud redis instances delete lightspeed-redis --region=$REGION --project=$PROJECT_ID"
+fi
 echo "  gcloud container images delete gcr.io/$PROJECT_ID/$SERVICE_NAME --force-delete-tags --quiet"
 echo "  gcloud container images delete gcr.io/$PROJECT_ID/$HANDLER_SERVICE_NAME --force-delete-tags --quiet"
 echo "  gcloud container images delete gcr.io/$PROJECT_ID/red-hat-lightspeed-mcp --force-delete-tags --quiet"

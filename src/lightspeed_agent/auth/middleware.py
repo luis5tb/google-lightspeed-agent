@@ -23,8 +23,8 @@ logger = logging.getLogger(__name__)
 # Request-scoped access token for forwarding to downstream services (e.g. MCP).
 # Stores (token, expiry) or None.  Set by AuthenticationMiddleware, read by
 # the MCP header provider in tools/mcp_headers.py.
-_request_access_token: contextvars.ContextVar[tuple[str, datetime] | None] = (
-    contextvars.ContextVar("_request_access_token", default=None)
+_request_access_token: contextvars.ContextVar[tuple[str, datetime] | None] = contextvars.ContextVar(
+    "_request_access_token", default=None
 )
 _request_order_id: contextvars.ContextVar[str | None] = contextvars.ContextVar(
     "_request_order_id", default=None
@@ -34,6 +34,9 @@ _request_user_id: contextvars.ContextVar[str | None] = contextvars.ContextVar(
 )
 _request_org_id: contextvars.ContextVar[str | None] = contextvars.ContextVar(
     "_request_org_id", default=None
+)
+_request_client_id: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "_request_client_id", default=None
 )
 _request_id: contextvars.ContextVar[str | None] = contextvars.ContextVar(
     "_request_id", default=None
@@ -58,6 +61,11 @@ def get_request_user_id() -> str | None:
 def get_request_org_id() -> str | None:
     """Return the current request's org_id, or None."""
     return _request_org_id.get()
+
+
+def get_request_client_id() -> str | None:
+    """Return the current request's client_id, or None."""
+    return _request_client_id.get()
 
 
 def get_request_id() -> str | None:
@@ -86,11 +94,6 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
         "/marketplace/pubsub",  # Pub/Sub uses Google-signed tokens
     }
 
-    # Path prefixes that are public
-    PUBLIC_PREFIXES = (
-        "/marketplace/",
-    )
-
     def __init__(self, app: Any):
         super().__init__(app)
         self._settings = get_settings()
@@ -105,6 +108,7 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
         _request_order_id.set(None)
         _request_user_id.set(None)
         _request_org_id.set(None)
+        _request_client_id.set(None)
         _request_id.set(str(uuid.uuid4()))
         path = request.url.path
         method = request.method
@@ -135,11 +139,19 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
             introspector = get_token_introspector()
             user = await introspector.validate_token(token)
 
-            order_id = await self._resolve_and_validate_order(client_id=user.client_id)
-            if not order_id:
-                return self._forbidden_response(
-                    "No active order found for this client"
+            order_id: str | None = None
+            if self._settings.skip_order_validation:
+                logger.debug(
+                    "Skipping order validation (skip_order_validation=true)"
                 )
+            else:
+                order_id = await self._resolve_and_validate_order(
+                    client_id=user.client_id
+                )
+                if not order_id:
+                    return self._forbidden_response(
+                        "No active order found for this client"
+                    )
 
             # Store user in request state for access in handlers
             request.state.user = user
@@ -150,6 +162,7 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
             _request_order_id.set(order_id)
             _request_user_id.set(user.user_id)
             _request_org_id.set(user.org_id)
+            _request_client_id.set(user.client_id)
             logger.info(
                 "Authenticated request "
                 "(event_type=request_authenticated, user_id=%s, org_id=%s, "
@@ -176,10 +189,6 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
         """Check if path/method combination is public."""
         # Explicit public paths
         if path in self.PUBLIC_PATHS:
-            return True
-
-        # Public prefixes
-        if path.startswith(self.PUBLIC_PREFIXES):
             return True
 
         # GET requests to root are public (for compatibility)
@@ -209,6 +218,7 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
                 _request_order_id.set(order_id)
             _request_user_id.set("dev-user")
             _request_org_id.set("dev-org")
+            _request_client_id.set("dev-client")
             logger.debug("Extracted Bearer token for pass-through (validation skipped)")
 
     async def _resolve_and_validate_order(self, *, client_id: str) -> str | None:

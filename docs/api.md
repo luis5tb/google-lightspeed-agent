@@ -315,7 +315,8 @@ with the [A2A protocol](https://google.github.io/A2A/) (Agent-to-Agent) for inte
 ## Base URL
 
 - **Local Development**: `http://localhost:8000`
-- **Production**: Your Cloud Run service URL
+- **Production (without GCLB)**: Your Cloud Run service URL
+- **Production (with GCLB)**: Your GCLB domain (e.g., `https://agent.example.com`). When optional per-service Google Cloud Load Balancers are enabled, `deploy.sh` sets `AGENT_PROVIDER_URL` to the GCLB domain automatically. See [Cloud Run deployment](../deploy/cloudrun/README.md#load-balancer-optional).
 
 ## Authentication
 
@@ -619,9 +620,8 @@ The system supports Dynamic Client Registration for Google Marketplace / Gemini 
 
 | Service | Endpoint | Description |
 |---------|----------|-------------|
-| Handler (8001) | `POST /dcr` | Hybrid endpoint for Pub/Sub and DCR requests |
-
-The `/dcr` endpoint on the handler accepts both Pub/Sub procurement events and DCR registration requests, routing based on content.
+| Handler (8001) | `POST /dcr` | DCR requests (OAuth client registration) |
+| Handler (8001) | `POST /pubsub` | Pub/Sub events (Google OIDC authenticated) |
 
 ### POST /dcr
 

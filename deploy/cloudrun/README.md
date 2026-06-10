@@ -6,22 +6,27 @@ Deploy the Red Hat Lightspeed Agent for Google Cloud to Google Cloud Run for pro
 
 - [Architecture](#architecture)
 - [Service Accounts](#service-accounts)
+- [Load Balancer (Optional)](#load-balancer-optional)
+  - [Cloud Armor (WAF)](#cloud-armor-waf)
 - [Prerequisites](#prerequisites)
 - [Quick Start](#quick-start)
   - [1. Set Environment Variables](#1-set-environment-variables)
   - [2. Run Setup Script](#2-run-setup-script)
   - [3. Set Up Cloud SQL Database](#3-set-up-cloud-sql-database)
   - [4. Redis Setup for Rate Limiting](#4-redis-setup-for-rate-limiting)
-  - [5. Configure Secrets](#5-configure-secrets)
-  - [6. Copy MCP Image to GCR](#6-copy-mcp-image-to-gcr)
-  - [7. Deploy](#7-deploy)
+  - [5. Configure Load Balancer (Optional)](#5-configure-load-balancer-optional)
+  - [6. Configure Secrets](#6-configure-secrets)
+  - [7. Copy MCP Image to GCR](#7-copy-mcp-image-to-gcr)
+  - [8. Deploy](#8-deploy)
 - [Service Configuration](#service-configuration)
   - [Agent Container](#agent-container)
+  - [Using a Different LLM](#using-a-different-llm)
   - [Rate Limiting (Redis)](#rate-limiting-redis)
   - [MCP Output Size Guard](#mcp-output-size-guard)
   - [MCP Server Sidecar](#mcp-server-sidecar)
   - [Copying the MCP Image to GCR](#copying-the-mcp-image-to-gcr)
   - [Customizing MCP Server Configuration](#customizing-mcp-server-configuration)
+  - [Custom ADK AI Skills](#custom-adk-ai-skills)
   - [Alternative: Use Docker Hub](#alternative-use-docker-hub)
   - [Scaling](#scaling)
 - [How the MCP Server Works](#how-the-mcp-server-works)
@@ -43,11 +48,12 @@ Deploy the Red Hat Lightspeed Agent for Google Cloud to Google Cloud Run for pro
 - [Audit Logging](#audit-logging)
 - [Monitoring](#monitoring)
 - [Troubleshooting](#troubleshooting)
+  - [DCR Requests Not Reaching Marketplace Handler](#dcr-requests-not-reaching-marketplace-handler)
 - [Cleanup / Teardown](#cleanup--teardown)
 
 ## Architecture
 
-The deployment consists of **two separate Cloud Run services** plus **Cloud Memorystore for Redis** (for rate limiting):
+The deployment consists of **two separate Cloud Run services** plus **Cloud Memorystore for Redis** (for rate limiting), with optional **per-service Google Cloud Load Balancers (GCLB)** for SSL termination, DDoS protection, and WAF:
 
 ```
                               Google Cloud Marketplace
@@ -58,46 +64,43 @@ The deployment consists of **two separate Cloud Run services** plus **Cloud Memo
       ┌──────────────────────┐                ┌──────────────────────────────────┐
       │  Pub/Sub (Events)    │                │  Gemini Enterprise (DCR)         │
       └──────────┬───────────┘                └──────────────────┬───────────────┘
+                 │ (internal)                                    │ (external)
                  │                                               │
-                 ▼                                               ▼
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                    Marketplace Handler Service (Port 8001)                      │
-│                    ───────────────────────────────────────                      │
-│  - Always running (minScale=1) to receive Pub/Sub events                        │
-│  - Handles entitlement approvals via Procurement API (filtered by product)      │
-│  - Handles DCR requests (creates OAuth clients in Red Hat SSO)                  │
-│  - Stores data in PostgreSQL                                                    │
-└──────────┬──────────────────────────────────────────────────────────────────────┘
-           │                                                 │
-           │ Shared PostgreSQL Database                      │ DCR (create OAuth clients)
-           ▼                                                 ▼
-┌──────────────────────────────────────────────┐    ┌──────────────────────┐
-│   Lightspeed Agent Service (Port 8000)       │    │  Red Hat SSO         │
-│   ─────────────────────────────────────      │    │  (GMA SSO API)       │
-│  ┌──────────────────┐   ┌──────────────────┐ │    │                      │
-│  │ Lightspeed Agent │   │ Lightspeed MCP   │ │    │  Production:         │
-│  │                  │   │ Server (8081)    │ │    │   sso.redhat.com     │
-│  │  - Gemini 2.5    │   │                  │ │    │                      │
-│  │  - A2A protocol  │◄-►│ - Advisor tools  │ │    │                      │
-│  │  - OAuth 2.0     │   │ - Inventory tools│ │    │                      │
-│  │                  │   │ - Vuln. tools    │ │    │                      │
-│  └──────────────────┘   └────────┬─────────┘ │    └──────────────────────┘
-│                                  │           │
-└──────────────────────────────────┼───────────┘
-                                   │
-                                   ▼
-                          ┌──────────────────┐
-                          │console.redhat.com│
-                          │ (Insights APIs)  │
-                          └──────────────────┘
+                 │  ┌──────────────────────────┐  ┌──────────────┴─────────────┐
+                 │  │  Handler LB (Optional)   │  │  Agent LB (Optional)       │
+                 │  │  ──────────────────────  │  │  ────────────────────      │
+                 │  │  - SSL (handler cert)    │  │  - SSL (agent cert)        │
+                 │  │  - Cloud Armor (handler) │  │  - Cloud Armor (agent)     │
+                 │  │  - Default backend only  │  │  - Default backend only    │
+                 │  └────────────┬─────────────┘  └────────────┬───────────────┘
+                 │               │                             │
+                 ▼               ▼                             ▼
+      ┌──────────────────────────────────┐  ┌──────────────────────────────────┐
+      │  Marketplace Handler (Port 8001) │  │  Lightspeed Agent (Port 8000)    │
+      │  ──────────────────────────────  │  │  ──────────────────────────────  │
+      │  - Always running (minScale=1)   │  │  ┌──────────────┐ ┌───────────┐ │
+      │  - Pub/Sub events (internal)     │  │  │ Lightspeed   │ │ MCP       │ │
+      │  - DCR requests (via LB)         │  │  │ Agent        │ │ Server    │ │
+      │  - Entitlement approval          │  │  │ LLM (config.)│◄►│ (8081)    │ │
+      │                                  │  │  │ A2A + OAuth  │ │ Advisor   │ │
+      └───────┬──────────────────┬───────┘  │  └──────────────┘ └─────┬─────┘ │
+              │                  │          └──────────────────────────┼───────┘
+     Shared DB│                  │ DCR                                 │
+              ▼                  ▼                                     ▼
+      ┌────────────┐     ┌──────────────┐                 ┌──────────────────┐
+      │ PostgreSQL │     │  Red Hat SSO  │                 │console.redhat.com│
+      └────────────┘     │ (GMA SSO API)│                 │ (Insights APIs)  │
+                         └──────────────┘                 └──────────────────┘
 ```
+
+Each service can have its own independent load balancer. When a service's LB is enabled (`ENABLE_LB_AGENT=true` or `ENABLE_LB_HANDLER=true`), Cloud Run ingress for that service is restricted to `internal-and-cloud-load-balancing`, meaning external traffic **must** go through its GCLB. Without a LB, external traffic reaches the Cloud Run service directly via its Cloud Run URL. Pub/Sub traffic is always internal Google Cloud traffic and reaches the handler directly, bypassing any load balancer.
 
 ### Service Responsibilities
 
 | Service | Port | Purpose | Scaling |
 |---------|------|---------|---------|
 | **Marketplace Handler** | 8001 | Pub/Sub events, DCR | Always on (minScale=1) |
-| **Lightspeed Agent** | 8000 | A2A queries, user interactions | Scale to zero |
+| **Lightspeed Agent** | 8000 | A2A queries, user interactions | Always on (minScale=1) |
 
 ### Deployment Order
 
@@ -123,6 +126,294 @@ The deployment uses **two separate service accounts** following the principle of
 - This separation ensures that if one SA is compromised, the blast radius is limited.
 
 Both are created automatically by `setup.sh`. The Pub/Sub Invoker SA is only created when `ENABLE_MARKETPLACE=true` (the default).
+
+## Load Balancer (Optional)
+
+The deployment scripts can create **independent per-service Google Cloud Load Balancers (GCLB)** — one for the agent and one for the marketplace handler. Each LB is fully self-contained with its own static IP, SSL certificate, Cloud Armor policy, and domain. This is optional — without LBs, services are accessed directly via their Cloud Run URLs.
+
+### What GCLB Provides
+
+- **SSL termination** with Google-managed certificates for your custom domains
+- **DDoS protection** via Cloud Armor
+- **WAF capabilities** (Web Application Firewall)
+- **Per-service isolation** — each service has its own independent LB, blast radius is contained
+- **Independent WAF policies** — tailor Cloud Armor rules per service (e.g., stricter rules for the agent)
+
+### Per-Service Architecture
+
+Each service that has an LB enabled gets its own independent set of resources — there is no shared state between the agent and handler LBs. Each LB has a simple default backend (no path-based routing needed since each fronts a single service).
+
+Pub/Sub events are internal Google Cloud traffic and reach the marketplace handler directly, bypassing the load balancer.
+
+### Ingress Restriction
+
+`deploy.sh` manages Cloud Run ingress for each service based on its LB configuration:
+
+- **LB enabled** → ingress is set to `internal-and-cloud-load-balancing`. External traffic **must** go through the service's GCLB (direct Cloud Run URLs are blocked from the internet).
+- **LB not enabled** → ingress is set to `all`. External traffic reaches the service directly via its Cloud Run URL.
+
+In both cases:
+
+- Internal Google Cloud traffic (e.g., Pub/Sub to handler) always reaches services directly
+- Health checks from the load balancer are allowed
+- Each service's ingress is managed independently — enabling the agent LB does not affect the handler's ingress, and vice versa
+
+> **Note:** The YAML configs (`service.yaml`, `marketplace-handler.yaml`) default to `internal-and-cloud-load-balancing`. `deploy.sh` overrides this to `all` for any service without an LB. If you deploy using `gcloud run services replace` directly (bypassing `deploy.sh`), set `run.googleapis.com/ingress: all` in the YAML manually when not using a GCLB.
+
+### Resources Created
+
+Each enabled LB creates the following resources (all prefixed with `LB_NAME` and the service label, default prefix: `lightspeed-lb`):
+
+**Agent LB resources** (when `ENABLE_LB_AGENT=true`):
+
+| Resource | Name | Description |
+|----------|------|-------------|
+| Global static IP | `{LB_NAME}-agent-ip` | External IP address for agent DNS |
+| Serverless NEG | `{LB_NAME}-agent-neg` | Network endpoint group for agent service |
+| Backend service | `{LB_NAME}-agent-backend` | Backend for agent NEG |
+| URL map | `{LB_NAME}-agent-url-map` | Default backend (agent) |
+| SSL certificate | `{LB_NAME}-agent-cert` | Google-managed SSL certificate for agent domain |
+| HTTPS target proxy | `{LB_NAME}-agent-https-proxy` | Terminates SSL and forwards to URL map |
+| Global forwarding rule | `{LB_NAME}-agent-forwarding-rule` | Maps static IP:443 to HTTPS proxy |
+
+**Handler LB resources** (when `ENABLE_LB_HANDLER=true`):
+
+| Resource | Name | Description |
+|----------|------|-------------|
+| Global static IP | `{LB_NAME}-handler-ip` | External IP address for handler DNS |
+| Serverless NEG | `{LB_NAME}-handler-neg` | Network endpoint group for handler service |
+| Backend service | `{LB_NAME}-handler-backend` | Backend for handler NEG |
+| URL map | `{LB_NAME}-handler-url-map` | Default backend (handler) |
+| SSL certificate | `{LB_NAME}-handler-cert` | Google-managed SSL certificate for handler domain |
+| HTTPS target proxy | `{LB_NAME}-handler-https-proxy` | Terminates SSL and forwards to URL map |
+| Global forwarding rule | `{LB_NAME}-handler-forwarding-rule` | Maps static IP:443 to HTTPS proxy |
+
+### Configuration
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `ENABLE_LB_AGENT` | `false` | Enable GCLB for the agent service |
+| `AGENT_DOMAIN_NAME` | (required when agent LB enabled) | Domain for the agent's Google-managed SSL certificate (e.g., `agent.example.com`) |
+| `ENABLE_LB_HANDLER` | `false` | Enable GCLB for the marketplace handler service |
+| `HANDLER_DOMAIN_NAME` | (required when handler LB enabled) | Domain for the handler's Google-managed SSL certificate (e.g., `dcr.example.com`) |
+| `ENABLE_CLOUD_ARMOR_AGENT` | `false` | Enable Cloud Armor WAF for the agent LB (requires `ENABLE_LB_AGENT=true`) |
+| `ENABLE_CLOUD_ARMOR_HANDLER` | `false` | Enable Cloud Armor WAF for the handler LB (requires `ENABLE_LB_HANDLER=true`) |
+| `CLOUD_ARMOR_SENSITIVITY_AGENT` | `1` | OWASP CRS sensitivity level for the agent WAF policy (1-4). Level 1 is recommended for the agent because its A2A payloads contain free-form user text that can trigger false positives at higher sensitivities. |
+| `CLOUD_ARMOR_SENSITIVITY_HANDLER` | `2` | OWASP CRS sensitivity level for the handler WAF policy (1-4). Level 2 is suitable because the handler only receives structured DCR JSON from Gemini Enterprise. |
+| `LB_NAME` | `lightspeed-lb` | Prefix for all load balancer resource names |
+
+### DNS Setup
+
+After `setup.sh` reserves the static IPs, create DNS A records for each enabled LB:
+
+1. Get the static IP addresses:
+   ```bash
+   # Agent LB IP (if ENABLE_LB_AGENT=true)
+   gcloud compute addresses describe ${LB_NAME:-lightspeed-lb}-agent-ip \
+     --global \
+     --project=$GOOGLE_CLOUD_PROJECT \
+     --format='value(address)'
+
+   # Handler LB IP (if ENABLE_LB_HANDLER=true)
+   gcloud compute addresses describe ${LB_NAME:-lightspeed-lb}-handler-ip \
+     --global \
+     --project=$GOOGLE_CLOUD_PROJECT \
+     --format='value(address)'
+   ```
+
+2. Create A records in your DNS provider:
+   ```
+   agent.example.com.  A  <agent-static-ip>
+   dcr.example.com.    A  <handler-static-ip>
+   ```
+
+3. Verify DNS propagation:
+   ```bash
+   dig +short $AGENT_DOMAIN_NAME
+   dig +short $HANDLER_DOMAIN_NAME
+   ```
+
+### SSL Certificate Provisioning
+
+Google-managed SSL certificates require each domain to resolve to its respective static IP before provisioning begins. Certificate provisioning typically takes **15 to 60 minutes** after DNS is correctly configured.
+
+Check certificate status:
+
+```bash
+# Agent certificate
+gcloud compute ssl-certificates describe ${LB_NAME:-lightspeed-lb}-agent-cert \
+  --global \
+  --project=$GOOGLE_CLOUD_PROJECT \
+  --format='value(managed.status)'
+
+# Handler certificate
+gcloud compute ssl-certificates describe ${LB_NAME:-lightspeed-lb}-handler-cert \
+  --global \
+  --project=$GOOGLE_CLOUD_PROJECT \
+  --format='value(managed.status)'
+```
+
+Each certificate goes through these states: `PROVISIONING` → `ACTIVE`. HTTPS traffic will not work for a service until its certificate reaches `ACTIVE` status.
+
+### Cloud Armor (WAF)
+
+Each service can have its own independent Cloud Armor security policy. Set `ENABLE_CLOUD_ARMOR_AGENT=true` (requires `ENABLE_LB_AGENT=true`) and/or `ENABLE_CLOUD_ARMOR_HANDLER=true` (requires `ENABLE_LB_HANDLER=true`) to create **Google Cloud Armor** security policies. Cloud Armor provides:
+
+- **Web Application Firewall (WAF)** with preconfigured OWASP ModSecurity Core Rule Set (CRS) rules
+- **DDoS mitigation** at the edge via Google's global infrastructure
+- **Layer 7 filtering** to block common web attacks before they reach your services
+- **Independent policies per service** — tailor WAF rules for each service's traffic patterns
+
+#### Why Enable WAF
+
+Without a GCLB in front of a Cloud Run service, there is no WAF layer — all HTTP traffic reaches your application directly. Cloud Armor WAF is only available through GCLB, so enabling a per-service load balancer is the only way to get WAF protection on Cloud Run.
+
+WAF enforcement applies the [OWASP ModSecurity Core Rule Set (CRS)](https://owasp.org/www-project-modsecurity-core-rule-set/) at the edge, blocking malicious requests **before they reach your application**. This provides defense-in-depth: even if the application has an undiscovered vulnerability, the WAF catches common exploit patterns at the network edge.
+
+Per-service policies allow independent tuning for each service's traffic profile. For example, the agent processes free-form A2A JSON-RPC payloads where users may ask about SQL queries or include HTML-like text — aggressive SQL injection rules could cause false positives. The marketplace handler receives structured DCR JSON from Gemini Enterprise — stricter rules are appropriate. Independent policies let you tune each service without compromise.
+
+#### Enabling Cloud Armor
+
+```bash
+# Enable LBs with Cloud Armor for both services
+export ENABLE_LB_AGENT=true
+export AGENT_DOMAIN_NAME="agent.example.com"
+export ENABLE_CLOUD_ARMOR_AGENT=true
+
+export ENABLE_LB_HANDLER=true
+export HANDLER_DOMAIN_NAME="dcr.example.com"
+export ENABLE_CLOUD_ARMOR_HANDLER=true
+
+./deploy/cloudrun/deploy.sh
+```
+
+#### Preconfigured WAF Rules
+
+Each security policy includes the following OWASP ModSecurity CRS rules, each configured to deny matching requests with HTTP 403. The rules map to [OWASP Top 10 (2021)](https://owasp.org/Top10/) categories:
+
+| Priority | Rule | OWASP Category | What It Blocks |
+|----------|------|----------------|----------------|
+| 900 | `methodenforcement-v422-stable` | A05:2021 Security Misconfiguration | Blocks unexpected HTTP methods (DELETE, PUT, TRACE, OPTIONS, etc.). Both services only use POST (JSON-RPC, DCR) and GET (health, agent card). |
+| 1000 | `sqli-v422-stable` | A03:2021 Injection | SQL injection attempts in query parameters, headers, and request body. Detects patterns like `' OR 1=1`, `UNION SELECT`, and encoded variants. |
+| 1100 | `xss-v422-stable` | A03:2021 Injection | Cross-site scripting via `<script>` tags, event handlers (`onerror`, `onload`), and JavaScript URIs in request parameters and headers. |
+| 1200 | `lfi-v422-stable` | A01:2021 Broken Access Control | Local file inclusion via path traversal (`../../etc/passwd`, `..%2f..%2f`). Prevents attackers from reading files on the server filesystem. |
+| 1300 | `rfi-v422-stable` | A01:2021 Broken Access Control | Remote file inclusion via URL parameters pointing to external resources (`http://evil.com/shell.php`). Blocks attempts to load and execute remote code. |
+| 1400 | `rce-v422-stable` | A03:2021 Injection | OS command injection attempts (`; rm -rf /`, backtick execution, pipe chains). Prevents arbitrary command execution on the server. |
+| 1500 | `scannerdetection-v422-stable` | Reconnaissance | Detects and blocks automated vulnerability scanners, web crawlers, and attack tools by matching known scanner signatures in User-Agent headers and request patterns. |
+| 1600 | `protocolattack-v422-stable` | A05:2021 Security Misconfiguration | HTTP request smuggling, response splitting (`\r\n` injection), and protocol-level attacks that exploit differences between proxy and backend HTTP parsing. |
+| 1700 | `sessionfixation-v422-stable` | A07:2021 Identification and Authentication Failures | Session fixation attacks where an attacker sets a known session ID via URL parameters or cookies, then waits for the victim to authenticate with that session. |
+| 1800 | `cve-canary` | Emerging Threats | Rapidly-updated signatures for critical CVEs (e.g., Log4Shell, Spring4Shell). Google updates these rules as new CVEs are disclosed, providing early protection before application patches are deployed. |
+
+All rules use `evaluatePreconfiguredWaf()` with configurable sensitivity levels (1-4). The agent defaults to sensitivity 1 (`CLOUD_ARMOR_SENSITIVITY_AGENT`) because its A2A payloads contain free-form user text that can trigger false positives at higher sensitivities. The handler defaults to sensitivity 2 (`CLOUD_ARMOR_SENSITIVITY_HANDLER`) because it only receives structured DCR JSON from Gemini Enterprise. JSON parsing is enabled on each security policy (`--json-parsing=STANDARD`) for accurate inspection of JSON-RPC and DCR request bodies. Request body inspection is set to 64kB (`--request-body-inspection-size=64kB`), the maximum, to cover large A2A conversation payloads. Verbose logging is enabled (`--log-level=VERBOSE`) for detailed visibility into WAF decisions, useful for debugging false positives and tuning rules.
+
+#### Preview Mode (Recommended for Initial Deployment)
+
+Cloud Armor rules are deployed in **enforce mode** (`deny-403`) by default — matching requests are blocked immediately. [Google recommends](https://docs.cloud.google.com/armor/docs/best-practices) deploying WAF rules in **preview mode** first to observe what they would block without actually blocking traffic, then switching to enforce mode after tuning.
+
+This is especially important for the **agent service**, where free-form A2A JSON-RPC payloads may contain SQL-like text, HTML fragments, or code snippets that trigger false positives on SQLi (`sqli`) or XSS (`xss`) rules. False positives from Cloud Armor are silent from the application's perspective — blocked requests never reach the app and produce no application-level logs, only Cloud Armor logs in Cloud Logging.
+
+To switch individual rules to preview mode after deployment:
+
+```bash
+# Put the SQLi rule into preview mode on the agent policy (log only, do not block)
+gcloud compute security-policies rules update 1000 \
+  --security-policy="${LB_NAME:-lightspeed-lb}-agent-security-policy" \
+  --action=deny-403 \
+  --preview \
+  --global --project=$GOOGLE_CLOUD_PROJECT
+```
+
+To re-enable enforcement after tuning:
+
+```bash
+gcloud compute security-policies rules update 1000 \
+  --security-policy="${LB_NAME:-lightspeed-lb}-agent-security-policy" \
+  --action=deny-403 \
+  --no-preview \
+  --global --project=$GOOGLE_CLOUD_PROJECT
+```
+
+**Recommended rollout procedure:**
+
+1. Deploy with rules in enforce mode (the default)
+2. Immediately switch agent SQLi and XSS rules (priorities 1000, 1100) to preview mode
+3. Monitor Cloud Armor logs for false positives (see [Viewing Blocked Requests](#viewing-blocked-requests))
+4. After 24–48 hours with no false positives, re-enable enforcement with `--no-preview`
+5. Repeat for any other rules that show false positive activity
+
+#### Checking Policy Status
+
+```bash
+# Agent security policy
+gcloud compute security-policies describe ${LB_NAME:-lightspeed-lb}-agent-security-policy \
+  --global --project=$GOOGLE_CLOUD_PROJECT
+
+# Handler security policy
+gcloud compute security-policies describe ${LB_NAME:-lightspeed-lb}-handler-security-policy \
+  --global --project=$GOOGLE_CLOUD_PROJECT
+```
+
+#### Viewing Blocked Requests
+
+Cloud Armor logs blocked requests to Cloud Logging. To view recent blocks:
+
+```bash
+gcloud logging read 'resource.type="http_load_balancer" AND jsonPayload.enforcedSecurityPolicy.outcome="DENY"' \
+  --project=$GOOGLE_CLOUD_PROJECT --limit=25 \
+  --format='table(timestamp, jsonPayload.enforcedSecurityPolicy.name, jsonPayload.enforcedSecurityPolicy.matchedRule, httpRequest.requestUrl)'
+```
+
+#### Customizing Rules
+
+You can add, remove, or modify rules after deployment. Specify the per-service policy name.
+
+> **Note:** Priorities 900–1800 are used by the preconfigured WAF rules. Custom rules should use priorities below 900 or above 1800.
+
+```bash
+# Remove a rule from the agent policy (e.g., scanner detection)
+gcloud compute security-policies rules delete 1500 \
+  --security-policy="${LB_NAME:-lightspeed-lb}-agent-security-policy" \
+  --global --project=$GOOGLE_CLOUD_PROJECT
+
+# Switch a rule to preview mode on the handler policy (log only, do not block)
+gcloud compute security-policies rules update 1000 \
+  --security-policy="${LB_NAME:-lightspeed-lb}-handler-security-policy" \
+  --action=deny-403 \
+  --preview \
+  --global --project=$GOOGLE_CLOUD_PROJECT
+
+# Add a custom IP deny rule to the agent policy
+gcloud compute security-policies rules create 800 \
+  --security-policy="${LB_NAME:-lightspeed-lb}-agent-security-policy" \
+  --src-ip-ranges="203.0.113.0/24" \
+  --action=deny-403 \
+  --global --project=$GOOGLE_CLOUD_PROJECT
+```
+
+#### Field-Level Exclusions (Reducing False Positives)
+
+The agent service processes free-form A2A JSON-RPC payloads where users may ask about SQL queries, paste HTML/code, or discuss file paths. These can trigger SQLi, XSS, or LFI rules as false positives. Use [field-level exclusions](https://docs.cloud.google.com/armor/docs/rule-tuning) to exclude specific request fields from WAF inspection while keeping protection for other fields.
+
+Exclusions are configured per rule per policy. To identify which fields trigger false positives, enable verbose logging (already configured) and check Cloud Armor logs:
+
+```bash
+# View recent blocks with request details
+gcloud logging read 'resource.type="http_load_balancer" AND jsonPayload.enforcedSecurityPolicy.outcome="DENY"' \
+  --project=$GOOGLE_CLOUD_PROJECT --limit=10 \
+  --format='json(timestamp, jsonPayload.enforcedSecurityPolicy.matchedRule, jsonPayload.enforcedSecurityPolicy.matchedFieldType, jsonPayload.enforcedSecurityPolicy.matchedFieldValue)'
+
+# Exclude a specific request header from SQLi inspection on the agent policy
+gcloud compute security-policies rules update 1000 \
+  --security-policy="${LB_NAME:-lightspeed-lb}-agent-security-policy" \
+  --request-header-to-exclude="Authorization" \
+  --global --project=$GOOGLE_CLOUD_PROJECT
+```
+
+> **Tip:** Start with verbose logging and preview mode on the agent's SQLi and XSS rules (priorities 1000, 1100) to identify false positives before adding exclusions. See [Preview Mode](#preview-mode-recommended-for-initial-deployment).
+
+#### Pricing
+
+Cloud Armor **Standard** tier is included with GCLB at no extra cost for preconfigured WAF rules and basic security policies. **Cloud Armor Enterprise** (formerly Managed Protection Plus) provides additional features such as adaptive protection, named IP lists, and threat intelligence — see [Cloud Armor pricing](https://cloud.google.com/armor/pricing) for details.
 
 ## Prerequisites
 
@@ -153,7 +444,20 @@ export SERVICE_NAME="lightspeed-agent"
 
 # Optional: disable Pub/Sub marketplace integration
 export ENABLE_MARKETPLACE="false"
+
+# Optional: enable per-service Google Cloud Load Balancers (GCLB)
+# export ENABLE_LB_AGENT="true"
+# export AGENT_DOMAIN_NAME="agent.example.com"    # Required when agent LB is enabled
+# export ENABLE_LB_HANDLER="true"
+# export HANDLER_DOMAIN_NAME="dcr.example.com"    # Required when handler LB is enabled
+# export LB_NAME="lightspeed-lb"                  # Default prefix for LB resources
+
+# Optional: enable Cloud Armor WAF per service (requires respective LB)
+# export ENABLE_CLOUD_ARMOR_AGENT="true"
+# export ENABLE_CLOUD_ARMOR_HANDLER="true"
 ```
+
+> **Note:** `deploy.sh` manages Cloud Run ingress automatically — services with an LB get restricted ingress (`internal-and-cloud-load-balancing`), services without an LB get open ingress (`all`). No manual YAML edits are needed.
 
 **Google Cloud Marketplace deployments:** If you are deploying with marketplace
 integration (`ENABLE_MARKETPLACE=true`, the default), you **must** set the
@@ -209,6 +513,13 @@ The setup script enables required APIs, creates service accounts (runtime + Pub/
 | `PUBSUB_SUBSCRIPTION` | `${PUBSUB_TOPIC}-sub` | Pub/Sub subscription name. **Must** be set explicitly when `PUBSUB_TOPIC` is a fully-qualified path, since the default derivation produces an invalid name. |
 | `SERVICE_CONTROL_SERVICE_NAME` | - | Managed service name from the Producer Portal. **Required** for marketplace deployments — used for entitlement approval and product-level event filtering. |
 | `ENABLE_MARKETPLACE` | `true` | Create Pub/Sub invoker SA and topic for marketplace integration |
+| `ENABLE_LB_AGENT` | `false` | Enable GCLB for the agent service (see [Load Balancer](#load-balancer-optional)) |
+| `AGENT_DOMAIN_NAME` | - | Domain for the agent SSL certificate. **Required** when `ENABLE_LB_AGENT=true`. |
+| `ENABLE_LB_HANDLER` | `false` | Enable GCLB for the marketplace handler service |
+| `HANDLER_DOMAIN_NAME` | - | Domain for the handler SSL certificate. **Required** when `ENABLE_LB_HANDLER=true`. |
+| `ENABLE_CLOUD_ARMOR_AGENT` | `false` | Enable Cloud Armor WAF for agent LB (requires `ENABLE_LB_AGENT=true`). See [Cloud Armor (WAF)](#cloud-armor-waf). |
+| `ENABLE_CLOUD_ARMOR_HANDLER` | `false` | Enable Cloud Armor WAF for handler LB (requires `ENABLE_LB_HANDLER=true`). |
+| `LB_NAME` | `lightspeed-lb` | Prefix for all load balancer resource names |
 
 ### 3. Set Up Cloud SQL Database
 
@@ -409,7 +720,52 @@ gcloud redis instances delete lightspeed-redis \
 - No downtime: Cloud Run rolls out the new revision alongside the old one. The old revision keeps using the previous `redis://` URL (pinned at deploy time) until it drains.
 - Rate limiting counters reset after the cutover (all sliding windows start fresh). This is harmless — users simply get a full quota again.
 
-### 5. Configure Secrets
+### 5. Configure Load Balancer (Optional)
+
+If you want SSL termination, DDoS protection, and independent WAF policies per service, enable per-service Google Cloud Load Balancers. See [Load Balancer (Optional)](#load-balancer-optional) for details on what GCLB provides.
+
+**Step 1: Enable the load balancers and set your domains:**
+
+```bash
+# Agent LB (A2A traffic)
+export ENABLE_LB_AGENT=true
+export AGENT_DOMAIN_NAME="agent.example.com"
+
+# Handler LB (DCR traffic)
+export ENABLE_LB_HANDLER=true
+export HANDLER_DOMAIN_NAME="dcr.example.com"
+
+# Optional: change the resource name prefix
+# export LB_NAME="lightspeed-lb"
+```
+
+You can enable LBs for one or both services independently.
+
+**Step 2: Run setup.sh** (if not already done — it creates the static IPs and SSL certificates for each enabled LB):
+
+```bash
+./deploy/cloudrun/setup.sh
+```
+
+**Step 3: Get the static IPs for DNS configuration:**
+
+```bash
+# Agent LB IP
+gcloud compute addresses describe ${LB_NAME:-lightspeed-lb}-agent-ip \
+  --global \
+  --project=$GOOGLE_CLOUD_PROJECT \
+  --format='value(address)'
+
+# Handler LB IP
+gcloud compute addresses describe ${LB_NAME:-lightspeed-lb}-handler-ip \
+  --global \
+  --project=$GOOGLE_CLOUD_PROJECT \
+  --format='value(address)'
+```
+
+**Step 4: Configure your DNS A records** to point each domain to its respective static IP address before deploying. Google-managed SSL certificates require domains to resolve to their static IPs before provisioning (takes 15–60 minutes after DNS propagates).
+
+### 6. Configure Secrets
 
 Update the placeholder secrets with actual values:
 
@@ -450,7 +806,7 @@ echo -n "postgresql+asyncpg://sessions:$SESSION_DB_PASSWORD@/agent_sessions?host
 # The CA certificate is stored separately (see Redis Setup step 3).
 ```
 
-### 6. Copy MCP Image to GCR
+### 7. Copy MCP Image to GCR
 
 Cloud Run doesn't support Quay.io directly. Copy the MCP server image to GCR.
 
@@ -485,7 +841,7 @@ docker tag quay.io/redhat-services-prod/insights-management-tenant/insights-mcp/
 docker push gcr.io/$GOOGLE_CLOUD_PROJECT/red-hat-lightspeed-mcp:latest
 ```
 
-### 7. Deploy
+### 8. Deploy
 
 The agent's AgentCard advertises the DCR endpoints served by the
 marketplace-handler service. Because of this, the **handler must be
@@ -533,6 +889,24 @@ AGENT_URL=$(gcloud run services describe ${SERVICE_NAME:-lightspeed-agent} \
 curl -s $AGENT_URL/.well-known/agent.json | jq '.capabilities.extensions'
 ```
 
+**Load balancer:** When `ENABLE_LB_AGENT=true` and/or `ENABLE_LB_HANDLER=true`, `deploy.sh` automatically creates independent GCLB resources (NEG, backend service, URL map, HTTPS proxy, forwarding rule) for each enabled service and restricts its Cloud Run ingress to `internal-and-cloud-load-balancing`. When `ENABLE_CLOUD_ARMOR_AGENT=true` or `ENABLE_CLOUD_ARMOR_HANDLER=true`, the script also creates a per-service Cloud Armor security policy with preconfigured WAF rules. After deployment, check the SSL certificate status:
+
+```bash
+# Agent certificate
+gcloud compute ssl-certificates describe ${LB_NAME:-lightspeed-lb}-agent-cert \
+  --global \
+  --project=$GOOGLE_CLOUD_PROJECT \
+  --format='value(managed.status)'
+
+# Handler certificate
+gcloud compute ssl-certificates describe ${LB_NAME:-lightspeed-lb}-handler-cert \
+  --global \
+  --project=$GOOGLE_CLOUD_PROJECT \
+  --format='value(managed.status)'
+```
+
+If the status is `PROVISIONING`, HTTPS traffic will not work yet — Google-managed certificates take 15–60 minutes to provision after DNS is correctly configured. HTTP traffic through the load balancer IP will work immediately.
+
 **Other examples:**
 
 ```bash
@@ -547,7 +921,7 @@ curl -s $AGENT_URL/.well-known/agent.json | jq '.capabilities.extensions'
 
 | Flag | Description |
 |------|-------------|
-| `--service <service>` | Which service to deploy: `all` (default), `handler`, `agent` |
+| `--service <service>` | Which service to deploy: `all` (default), `handler`, `agent`, `lb` (LB-only, no service redeploy) |
 | `--image <image>` | Container image for the agent (default: `gcr.io/$PROJECT_ID/lightspeed-agent:latest`) |
 | `--handler-image <image>` | Container image for the marketplace handler (default: `gcr.io/$PROJECT_ID/marketplace-handler:latest`) |
 | `--mcp-image <image>` | Container image for the MCP server (default: `gcr.io/$PROJECT_ID/red-hat-lightspeed-mcp:latest`) |
@@ -561,6 +935,7 @@ curl -s $AGENT_URL/.well-known/agent.json | jq '.capabilities.extensions'
 | `handler` | `marketplace-handler.yaml` | Pub/Sub events, DCR requests |
 | `agent` | `service.yaml` | A2A queries with MCP sidecar |
 | `all` | Both | Deploy both services |
+| `lb` | — | Set up load balancers only for enabled services (no service redeploy) |
 
 The deploy script performs variable substitution on the YAML configs
 (`${PROJECT_ID}`, `${REGION}`, image references, etc.) and deploys using
@@ -590,6 +965,92 @@ sed -e "s|\${PROJECT_ID}|$GOOGLE_CLOUD_PROJECT|g" \
 | CPU | 2 | vCPUs allocated |
 | Memory | 2Gi | Memory limit |
 | Port | 8000 | Container port |
+
+### Using a Different LLM
+
+By default the agent uses **Gemini 2.5 Flash** via Vertex AI. You can switch to a different model on Vertex AI or point the agent at an external model endpoint (e.g., a model served on OpenShift).
+
+#### Different model on Vertex AI
+
+To use a different model available through Vertex AI (e.g., a partner model like GTP-OSS 120B), set `LLM_PROVIDER=litellm` and use the `vertex_ai/` model prefix:
+
+```bash
+gcloud run services update ${SERVICE_NAME:-lightspeed-agent} \
+  --region=$GOOGLE_CLOUD_LOCATION \
+  --project=$GOOGLE_CLOUD_PROJECT \
+  --update-env-vars="\
+LLM_PROVIDER=litellm,\
+LLM_MODEL=vertex_ai/gtp-oss-120b"
+```
+
+The agent uses the existing `GOOGLE_CLOUD_PROJECT` and Vertex AI credentials — no additional API keys are needed. For Claude models on Vertex AI:
+
+```bash
+gcloud run services update ${SERVICE_NAME:-lightspeed-agent} \
+  --region=$GOOGLE_CLOUD_LOCATION \
+  --project=$GOOGLE_CLOUD_PROJECT \
+  --update-env-vars="\
+LLM_PROVIDER=litellm,\
+LLM_MODEL=vertex_ai/claude-3-5-sonnet-v2@20241022"
+```
+
+To switch back to the default Gemini model:
+
+```bash
+gcloud run services update ${SERVICE_NAME:-lightspeed-agent} \
+  --region=$GOOGLE_CLOUD_LOCATION \
+  --project=$GOOGLE_CLOUD_PROJECT \
+  --remove-env-vars="LLM_PROVIDER,LLM_MODEL"
+```
+
+#### External model endpoint (e.g., OpenShift)
+
+To use a model hosted outside Google Cloud — for example, a model served via vLLM or text-generation-inference on OpenShift AI — point the agent at the model's OpenAI-compatible endpoint:
+
+**1. Store the API key in Secret Manager:**
+
+```bash
+echo -n 'your-model-api-key' | \
+  gcloud secrets versions add llm-api-key --data-file=- --project=$GOOGLE_CLOUD_PROJECT
+
+# Grant the runtime SA access to the new secret
+gcloud secrets add-iam-policy-binding llm-api-key \
+  --member="serviceAccount:${SERVICE_ACCOUNT_NAME:-lightspeed-agent}@${GOOGLE_CLOUD_PROJECT}.iam.gserviceaccount.com" \
+  --role="roles/secretmanager.secretAccessor" \
+  --project=$GOOGLE_CLOUD_PROJECT
+```
+
+**2. Add the secret to `service.yaml`:**
+
+In the agent container's `env` section, add:
+
+```yaml
+- name: LLM_API_KEY
+  valueFrom:
+    secretKeyRef:
+      key: latest
+      name: llm-api-key
+```
+
+**3. Deploy with the external model settings:**
+
+```bash
+gcloud run services update ${SERVICE_NAME:-lightspeed-agent} \
+  --region=$GOOGLE_CLOUD_LOCATION \
+  --project=$GOOGLE_CLOUD_PROJECT \
+  --update-env-vars="\
+LLM_PROVIDER=litellm,\
+LLM_MODEL=openai/your-model-name,\
+LLM_API_BASE=https://your-model.apps.ocp.example.com/v1"
+```
+
+The `openai/` prefix tells LiteLLM to use the OpenAI-compatible chat completions protocol, which is the standard API exposed by vLLM, text-generation-inference, and most model serving frameworks.
+
+> **Notes:**
+> - The external endpoint must be reachable from Cloud Run. For private endpoints, configure a [VPC connector](https://cloud.google.com/run/docs/configuring/vpc-connectors) or [Private Google Access](https://cloud.google.com/run/docs/configuring/private-networking).
+> - Gemini HTTP retry settings (`GEMINI_HTTP_RETRY_*`) do not apply to `litellm` providers. LiteLLM has its own retry logic.
+> - MCP tools work with all model providers. Google's built-in ADK tools (e.g., `SearchTool`) only work with Gemini.
+> - See [Configuration — LLM Provider](../../docs/configuration.md#llm-provider) for all available settings.
 
 ### Rate Limiting (Redis)
 
@@ -711,12 +1172,18 @@ The MCP server configuration is hardcoded in `deploy/cloudrun/service.yaml` beca
 ```yaml
 args:
   - "--readonly"      # Run in read-only mode
+  - "--toolset"       # Restrict to specific toolsets
+  - "advisor,inventory,vulnerability,planning,rhsm,content_sources,rbac"
   - "http"            # Use HTTP transport
   - "--port"
   - "8080"            # Listen on port 8080
   - "--host"
   - "0.0.0.0"         # Bind to all interfaces
 ```
+
+The `--toolset` flag controls which MCP tool categories the server loads. Only the listed toolsets are available to the agent. This is enforced at the MCP server level, independently of the agent-side `MCP_READ_ONLY` tool filtering.
+
+**Available toolsets:** `advisor`, `inventory`, `vulnerability`, `remediations`, `planning`, `image_builder`, `rhsm`, `content_sources`, `rbac`
 
 **To change MCP server settings:**
 
@@ -731,6 +1198,7 @@ args:
    - **Change port**: Modify `"8080"` to your desired port (also update `MCP_SERVER_URL` in the agent container env)
    - **Enable write operations**: Remove `"--readonly"` flag (not recommended for production)
    - **Change transport**: Modify `"http"` to `"sse"` or `"stdio"` (requires corresponding agent changes)
+   - **Change available toolsets**: Modify the comma-separated list after `"--toolset"`
 
 3. Redeploy after making changes:
    ```bash
@@ -738,6 +1206,136 @@ args:
    ```
 
 **Note**: If you change the MCP server port, you must also update the `MCP_SERVER_URL` environment variable in the agent container to match.
+
+### Custom ADK AI Skills
+
+The agent uses [ADK AI Skills](https://adk.dev/skills/) for modular behavioral instructions. Six bundled skills ship with the container image (tool invocation rules, multi-step workflows, pagination handling, error handling, guardrails/safety, response formatting). These always load at startup.
+
+You can add **custom skills** to change or extend the agent's behavior without rebuilding the image by setting the `SKILLS_DIR` environment variable to a directory containing your skill definitions. External skills with the same name as a bundled skill override the bundled version.
+
+#### Skill file format
+
+Each skill lives in its own directory with a `SKILL.md` file:
+
+```
+my-custom-skill/
+├── SKILL.md              # Required: YAML frontmatter + markdown instructions
+└── references/           # Optional: additional docs loaded on-demand
+    └── examples.md
+```
+
+The `SKILL.md` has YAML frontmatter followed by markdown instructions:
+
+```markdown
+---
+name: my-custom-skill
+description: |
+  What this skill does and when the LLM should use it.
+  Must be under 1024 characters.
+metadata:
+  author: my-team
+  version: "1.0"
+---
+
+# Detailed instructions
+
+Step-by-step instructions the agent follows when this skill is activated.
+```
+
+**Naming rules:** The directory name must match the `name` field in frontmatter exactly. Names must be lowercase kebab-case (a-z, 0-9, hyphens), max 64 characters.
+
+#### Deploying custom skills on Cloud Run
+
+**Option A: Build a custom image** with skills baked in:
+
+```dockerfile
+FROM gcr.io/$PROJECT_ID/lightspeed-agent:latest
+COPY my-skills/ /opt/agent-skills/
+ENV SKILLS_DIR=/opt/agent-skills
+```
+
+**Option B: Use a Cloud Storage volume mount** (no image rebuild):
+
+1. Upload skills to a GCS bucket:
+   ```bash
+   gsutil -m cp -r my-skills/* gs://$PROJECT_ID-agent-skills/
+   ```
+
+2. Add a volume mount to `service.yaml` on the agent container:
+   ```yaml
+   volumeMounts:
+     - name: agent-skills
+       mountPath: /skills
+       readOnly: true
+   ```
+
+3. Add the volume definition:
+   ```yaml
+   volumes:
+     - name: agent-skills
+       csi:
+         driver: gcsfuse.run.googleapis.com
+         volumeAttributes:
+           bucketName: ${PROJECT_ID}-agent-skills
+   ```
+
+4. Set the environment variable:
+   ```yaml
+   - name: SKILLS_DIR
+     value: "/skills"
+   ```
+
+5. Redeploy:
+   ```bash
+   ./deploy/cloudrun/deploy.sh --service agent
+   ```
+
+#### Overriding bundled skills
+
+To override a bundled skill (e.g., customize `response-formatting` for your deployment), create a skill directory with the same name in your external skills directory:
+
+```
+my-skills/
+├── response-formatting/        # Overrides the bundled response-formatting skill
+│   └── SKILL.md
+└── domain-specific-rules/      # New skill added alongside bundled ones
+    └── SKILL.md
+```
+
+The agent logs which skills were loaded and which were overridden:
+```
+Loaded 6 bundled skills from /app/core/skills
+External skills overriding bundled: response-formatting
+Loaded 2 external skills from /skills (7 total)
+```
+
+### Staging Environment (MCP Sidecar)
+
+When deploying against the Red Hat **staging** environment, the MCP sidecar needs environment variable overrides so it connects to the stage Insights APIs and SSO instead of production.
+
+Uncomment the `env` block on the `insights-mcp` container in `service.yaml`:
+
+```yaml
+env:
+  - name: LIGHTSPEED_BASE_URL
+    value: "https://console.stage.redhat.com"
+  - name: LIGHTSPEED_SSO_BASE_URL
+    value: "https://sso.stage.redhat.com"
+```
+
+These overrides are already present in `service.yaml` as commented-out lines. To enable them:
+
+1. Edit `deploy/cloudrun/service.yaml` and uncomment the `env` section under the `insights-mcp` container.
+2. Update the **agent container** SSO issuer to match the staging environment:
+   ```yaml
+   - name: RED_HAT_SSO_ISSUER
+     value: "https://sso.stage.redhat.com/auth/realms/redhat-external"
+   ```
+3. If using DCR, also update the marketplace handler for staging — see [GMA SSO API Configuration (Staging vs Production)](#gma-sso-api-configuration-staging-vs-production).
+4. Redeploy:
+   ```bash
+   ./deploy/cloudrun/deploy.sh --service agent
+   ```
 
 ### Alternative: Use Docker Hub
 
@@ -778,18 +1376,18 @@ docker push docker.io/YOUR_USERNAME/red-hat-lightspeed-mcp:latest
 
 ### Scaling
 
-| Setting | Value | Description |
-|---------|-------|-------------|
-| Min Instances | 0 | Scale to zero when idle |
-| Max Instances | 10 | Maximum concurrent instances |
-| Concurrency | 80 | Requests per instance |
-| Timeout | 300s | Request timeout |
+| Setting | Agent | Handler | Description |
+|---------|-------|---------|-------------|
+| Min Instances | 1 | 1 | Always keep at least one instance running |
+| Max Instances | 10 | 2 | Maximum concurrent instances |
+| Concurrency | 80 | 80 | Requests per instance |
+| Timeout | 300s | 60s | Request timeout |
 
 ## How the MCP Server Works
 
 The MCP server runs as a sidecar container alongside the agent:
 
-1. **Agent Container** (port 8000): Handles A2A requests, uses Gemini for AI
+1. **Agent Container** (port 8000): Handles A2A requests, uses configurable LLM (Gemini by default)
 2. **MCP Server Container** (port 8080): Provides tools for Red Hat Insights APIs
 
 When the agent needs to access Insights data (e.g., system vulnerabilities, recommendations):
@@ -883,7 +1481,7 @@ Bearer token that is active and carries the `api.console` and `api.ocm` scopes.
 | `MARKETPLACE_HANDLER_URL` | URL of the marketplace-handler service. Used to build the DCR endpoints in the AgentCard. If empty, falls back to `AGENT_PROVIDER_URL`. Set automatically by `deploy.sh`. |
 | `AGENT_PROVIDER_ORGANIZATION_URL` | Provider's organization website URL (default: `https://www.redhat.com`). Used in AgentCard `provider.url` and as the expected JWT audience for Google DCR `software_statement` validation. Set in YAML configs, not changed by `deploy.sh`. |
 | `AGENT_REQUIRED_SCOPE` | Comma-separated OAuth scopes required in tokens (default: `api.console,api.ocm`) |
-| `AGENT_ALLOWED_SCOPES` | Comma-separated allowlist of permitted scopes (default: `openid,profile,email,api.console,api.ocm`). Tokens with scopes outside this list are rejected (403). |
+| `AGENT_ALLOWED_SCOPES` | Comma-separated allowlist of permitted scopes (default: `openid,profile,email,api.console,api.ocm,metering:admin`). Tokens with scopes outside this list are rejected (403). |
 
 ### Development Mode
 
@@ -902,7 +1500,8 @@ After deployment, the following endpoints are available:
 |----------|-------------|
 | `GET /health` | Health check |
 | `GET /ready` | Readiness check |
-| `POST /dcr` | Hybrid endpoint (Pub/Sub events + DCR requests) |
+| `POST /dcr` | DCR requests (OAuth client registration) |
+| `POST /pubsub` | Pub/Sub events (Google OIDC authenticated) |
 
 ### Lightspeed Agent Service
 
@@ -1205,7 +1804,7 @@ gcloud run services update lightspeed-agent \
   --region=$GOOGLE_CLOUD_LOCATION \
   --project=$GOOGLE_CLOUD_PROJECT \
   --update-env-vars="AGENT_REQUIRED_SCOPE=api.console,api.ocm" \
-  --update-env-vars="AGENT_ALLOWED_SCOPES=openid,profile,email,api.console,api.ocm"
+  --update-env-vars="AGENT_ALLOWED_SCOPES=openid,profile,email,api.console,api.ocm,metering:admin"
 
 # 2. Remove DCR client
 python scripts/seed_dcr_clients.py delete --order-id "$TEST_ORDER_ID" --confirm
@@ -1625,7 +2224,7 @@ gcloud run services update ${SERVICE_NAME:-lightspeed-agent} \
   --region=$GOOGLE_CLOUD_LOCATION \
   --project=$GOOGLE_CLOUD_PROJECT \
   --update-env-vars="AGENT_REQUIRED_SCOPE=api.console,api.ocm" \
-  --update-env-vars="AGENT_ALLOWED_SCOPES=openid,profile,email,api.console,api.ocm"
+  --update-env-vars="AGENT_ALLOWED_SCOPES=openid,profile,email,api.console,api.ocm,metering:admin"
 ```
 
 > **Note:** Both `AGENT_REQUIRED_SCOPE` and `AGENT_ALLOWED_SCOPES` must not be
@@ -1646,7 +2245,7 @@ Add the missing scope(s) to the allowlist:
 gcloud run services update ${SERVICE_NAME:-lightspeed-agent} \
   --region=$GOOGLE_CLOUD_LOCATION \
   --project=$GOOGLE_CLOUD_PROJECT \
-  --update-env-vars="AGENT_ALLOWED_SCOPES=openid,profile,email,api.console,api.ocm,your.extra.scope"
+  --update-env-vars="AGENT_ALLOWED_SCOPES=openid,profile,email,api.console,api.ocm,metering:admin,your.extra.scope"
 ```
 
 This setting is also configurable in `service.yaml` via the
@@ -1915,6 +2514,222 @@ gcloud run services describe lightspeed-agent \
 2. **Container fails to start**: Check logs for missing environment variables
 3. **Database connection timeout**: Ensure Cloud SQL connection is configured
 
+### SSL Certificate Stuck in PROVISIONING
+
+Google-managed SSL certificates require each domain's DNS A record to point to its load balancer's static IP before provisioning can complete. If a certificate remains in `PROVISIONING` state:
+
+1. Verify the DNS A record is correctly configured:
+   ```bash
+   # Get the expected static IPs
+   gcloud compute addresses describe ${LB_NAME:-lightspeed-lb}-agent-ip \
+     --global --project=$GOOGLE_CLOUD_PROJECT --format='value(address)'
+   gcloud compute addresses describe ${LB_NAME:-lightspeed-lb}-handler-ip \
+     --global --project=$GOOGLE_CLOUD_PROJECT --format='value(address)'
+
+   # Check what the domains resolve to
+   dig +short $AGENT_DOMAIN_NAME
+   dig +short $HANDLER_DOMAIN_NAME
+   ```
+
+2. Ensure each domain resolves to its respective static IP. If not, update your DNS provider.
+
+3. Check the certificate status and domain status:
+   ```bash
+   # Agent certificate
+   gcloud compute ssl-certificates describe ${LB_NAME:-lightspeed-lb}-agent-cert \
+     --global --project=$GOOGLE_CLOUD_PROJECT \
+     --format='yaml(managed.status,managed.domainStatus)'
+
+   # Handler certificate
+   gcloud compute ssl-certificates describe ${LB_NAME:-lightspeed-lb}-handler-cert \
+     --global --project=$GOOGLE_CLOUD_PROJECT \
+     --format='yaml(managed.status,managed.domainStatus)'
+   ```
+
+4. Wait up to 60 minutes after DNS is correctly configured. Certificate provisioning is handled by Google and cannot be expedited.
+
+### 502 Errors After Enabling GCLB
+
+Backend services may take a few minutes to become healthy after a GCLB is first created. If you see 502 errors:
+
+1. Verify the Cloud Run service is healthy:
+   ```bash
+   gcloud run services describe ${SERVICE_NAME:-lightspeed-agent} \
+     --region=$GOOGLE_CLOUD_LOCATION --project=$GOOGLE_CLOUD_PROJECT \
+     --format='value(status.conditions.status)'
+   ```
+
+2. Check that the serverless NEG is correctly configured:
+   ```bash
+   # Agent NEG
+   gcloud compute network-endpoint-groups describe ${LB_NAME:-lightspeed-lb}-agent-neg \
+     --region=$GOOGLE_CLOUD_LOCATION --project=$GOOGLE_CLOUD_PROJECT
+
+   # Handler NEG
+   gcloud compute network-endpoint-groups describe ${LB_NAME:-lightspeed-lb}-handler-neg \
+     --region=$GOOGLE_CLOUD_LOCATION --project=$GOOGLE_CLOUD_PROJECT
+   ```
+
+3. Wait 2–3 minutes for the backend services to register as healthy, then retry.
+
+### DCR Requests Not Reaching Marketplace Handler
+
+If DCR requests from Gemini Enterprise fail with no logs on the marketplace
+handler (but Pub/Sub events work fine), the most likely cause is a Cloud Run
+ingress restriction without a corresponding GCLB.
+
+**Background:** When Cloud Run ingress is set to `internal-and-cloud-load-balancing`,
+only internal Google Cloud traffic (e.g., Pub/Sub push) and traffic through a
+Google Cloud Load Balancer (GCLB) are allowed. Direct external traffic — including
+DCR requests from Gemini Enterprise — is blocked at the Cloud Run ingress level
+before it reaches the application. This is why no logs appear.
+
+**Diagnosis:**
+
+```bash
+# Check the handler's ingress setting
+gcloud run services describe ${HANDLER_SERVICE_NAME:-marketplace-handler} \
+  --region=$GOOGLE_CLOUD_LOCATION \
+  --project=$GOOGLE_CLOUD_PROJECT \
+  --format='value(metadata.annotations."run.googleapis.com/ingress")'
+# If this shows "internal-and-cloud-load-balancing", external DCR traffic is blocked
+# unless a GCLB is in front of the handler.
+
+# Check if a GCLB exists for the handler
+gcloud compute backend-services list \
+  --project=$GOOGLE_CLOUD_PROJECT \
+  --filter="name~handler" \
+  --format='table(name, backends.group)'
+# If empty, no GCLB is configured.
+
+# Check what URL the AgentCard advertises for DCR
+AGENT_URL=$(gcloud run services describe ${SERVICE_NAME:-lightspeed-agent} \
+  --region=$GOOGLE_CLOUD_LOCATION \
+  --project=$GOOGLE_CLOUD_PROJECT \
+  --format='value(status.url)')
+curl -s $AGENT_URL/.well-known/agent.json | \
+  jq '.capabilities.extensions[] | select(.uri | contains("dcr"))'
+# The target_url must point to the GCLB domain, NOT the Cloud Run URL.
+```
+
+**Fix — Add a GCLB to an existing deployment:**
+
+This adds a Google Cloud Load Balancer in front of the marketplace handler
+so external DCR traffic from Gemini Enterprise is routed through the GCLB
+and accepted by Cloud Run.
+
+```bash
+# 1. Set GCLB environment variables
+export ENABLE_LB_HANDLER=true
+export HANDLER_DOMAIN_NAME="dcr.example.com"  # Replace with your handler domain
+
+# Optional: also enable agent LB
+# export ENABLE_LB_AGENT=true
+# export AGENT_DOMAIN_NAME="agent.example.com"
+
+# 2. Run setup.sh to create the static IP and SSL certificate
+./deploy/cloudrun/setup.sh
+
+# 3. Get the static IP for DNS configuration
+gcloud compute addresses describe ${LB_NAME:-lightspeed-lb}-handler-ip \
+  --global \
+  --project=$GOOGLE_CLOUD_PROJECT \
+  --format='value(address)'
+
+# 4. Create a DNS A record in your DNS provider:
+#    dcr.example.com.  A  <handler-static-ip>
+
+# 5. Verify DNS propagation
+dig +short $HANDLER_DOMAIN_NAME
+
+# 6. Deploy with LB enabled
+#    This creates the GCLB, updates the handler's ingress, and sets
+#    MARKETPLACE_HANDLER_URL on the agent to point to the GCLB domain.
+./deploy/cloudrun/deploy.sh --service all
+
+# 7. Wait for SSL certificate provisioning (typically 15-60 minutes)
+gcloud compute ssl-certificates describe ${LB_NAME:-lightspeed-lb}-handler-cert \
+  --global \
+  --project=$GOOGLE_CLOUD_PROJECT \
+  --format='value(managed.status)'
+# Must show ACTIVE before HTTPS traffic works through the GCLB.
+```
+
+**Verify the fix:**
+
+```bash
+# AgentCard should show the GCLB domain in the DCR target_url
+curl -s $AGENT_URL/.well-known/agent.json | \
+  jq '.capabilities.extensions[] | select(.uri | contains("dcr"))'
+# Expected: "target_url": "https://dcr.example.com/dcr"
+
+# Health check through the GCLB (once SSL cert is ACTIVE)
+curl -s https://$HANDLER_DOMAIN_NAME/health
+```
+
+**Alternative — Update MARKETPLACE_HANDLER_URL without full redeployment:**
+
+If the GCLB is already set up but the AgentCard still points to the Cloud Run
+URL, update just the agent's environment variable:
+
+```bash
+gcloud run services update ${SERVICE_NAME:-lightspeed-agent} \
+  --region=$GOOGLE_CLOUD_LOCATION \
+  --project=$GOOGLE_CLOUD_PROJECT \
+  --update-env-vars="MARKETPLACE_HANDLER_URL=https://${HANDLER_DOMAIN_NAME}"
+```
+
+### DCR Requests Failing with GCLB
+
+If DCR requests fail after enabling the handler load balancer, verify the handler LB resources are correctly created:
+
+```bash
+# Check the handler backend service
+gcloud compute backend-services describe ${LB_NAME:-lightspeed-lb}-handler-backend \
+  --global --project=$GOOGLE_CLOUD_PROJECT
+
+# Check the handler NEG
+gcloud compute network-endpoint-groups describe ${LB_NAME:-lightspeed-lb}-handler-neg \
+  --region=$GOOGLE_CLOUD_LOCATION --project=$GOOGLE_CLOUD_PROJECT
+```
+
+If resources are missing, redeploy with `ENABLE_LB_HANDLER=true`:
+
+```bash
+ENABLE_LB_HANDLER=true HANDLER_DOMAIN_NAME=dcr.example.com ./deploy/cloudrun/deploy.sh --service handler
+```
+
+### Legitimate Requests Blocked by Cloud Armor
+
+If Cloud Armor is blocking legitimate traffic, check which rule is triggering:
+
+```bash
+gcloud logging read 'resource.type="http_load_balancer" AND jsonPayload.enforcedSecurityPolicy.outcome="DENY"' \
+  --project=$GOOGLE_CLOUD_PROJECT --limit=10 \
+  --format='table(timestamp, jsonPayload.enforcedSecurityPolicy.matchedRule, httpRequest.requestUrl)'
+```
+
+To stop blocking while you investigate, switch the offending rule to **preview mode** (logs only, no enforcement). Use the per-service policy name:
+
+```bash
+# Example: put the SQL injection rule into preview mode on the agent policy
+gcloud compute security-policies rules update 1000 \
+  --security-policy="${LB_NAME:-lightspeed-lb}-agent-security-policy" \
+  --action=deny-403 \
+  --preview \
+  --global --project=$GOOGLE_CLOUD_PROJECT
+```
+
+To re-enable enforcement, run the same command without `--preview`:
+
+```bash
+gcloud compute security-policies rules update 1000 \
+  --security-policy="${LB_NAME:-lightspeed-lb}-agent-security-policy" \
+  --action=deny-403 \
+  --no-preview \
+  --global --project=$GOOGLE_CLOUD_PROJECT
+```
+
 ### Orders Stuck in Pending Status
 
 If marketplace subscriptions remain in `pending` status in the Google Cloud
@@ -1985,8 +2800,9 @@ HANDLER_URL=$(gcloud run services describe ${HANDLER_SERVICE_NAME:-marketplace-h
 
 gcloud pubsub subscriptions create "$PUBSUB_SUBSCRIPTION" \
   --topic="$PUBSUB_TOPIC" \
-  --push-endpoint="${HANDLER_URL}/dcr" \
+  --push-endpoint="${HANDLER_URL}/pubsub" \
   --push-auth-service-account="$PUBSUB_INVOKER_SA" \
+  --push-auth-token-audience="${HANDLER_URL}/pubsub" \
   --ack-deadline=60 \
   --project=$GOOGLE_CLOUD_PROJECT \
   --impersonate-service-account="$PUBSUB_INVOKER_SA"
@@ -2013,6 +2829,9 @@ This will delete:
 - Pub/Sub topic and subscription
 - Secret Manager secrets
 - Service accounts (runtime + Pub/Sub invoker) and IAM bindings
+- Agent LB resources (when `ENABLE_LB_AGENT=true`): forwarding rule, HTTPS proxy, SSL certificate, URL map, backend service, NEG, and static IP
+- Handler LB resources (when `ENABLE_LB_HANDLER=true`): forwarding rule, HTTPS proxy, SSL certificate, URL map, backend service, NEG, and static IP
+- Cloud Armor security policies and WAF rules (defensively removed regardless of the `ENABLE_CLOUD_ARMOR_*` flag, ensuring no orphaned policies remain)
 
 Use `--force` to skip the confirmation prompt:
 

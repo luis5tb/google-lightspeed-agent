@@ -112,9 +112,7 @@ class ServiceControlClient:
                     code = CheckErrorCode(error.code.name)
                 except ValueError:
                     code = CheckErrorCode.SERVICE_STATUS_UNAVAILABLE
-                check_errors.append(
-                    CheckError(code=code, detail=error.detail or "")
-                )
+                check_errors.append(CheckError(code=code, detail=error.detail or ""))
 
             return CheckResponse(  # type: ignore[call-arg]
                 operation_id=response.operation_id or operation_id,
@@ -167,9 +165,7 @@ class ServiceControlClient:
                     metric_value_sets.append(
                         servicecontrol_v1.MetricValueSet(
                             metric_name=f"{self._service_name}/{metric_name}",
-                            metric_values=[
-                                servicecontrol_v1.MetricValue(int64_value=value)
-                            ],
+                            metric_values=[servicecontrol_v1.MetricValue(int64_value=value)],
                         )
                     )
 
@@ -200,10 +196,12 @@ class ServiceControlClient:
             # Convert to our model
             report_errors = []
             for error in response.report_errors:
-                report_errors.append({
-                    "operation_id": error.operation_id,
-                    "status": error.status,
-                })
+                report_errors.append(
+                    {
+                        "operation_id": error.operation_id,
+                        "status": error.status,
+                    }
+                )
 
             return ReportResponse(  # type: ignore[call-arg]
                 report_errors=report_errors,

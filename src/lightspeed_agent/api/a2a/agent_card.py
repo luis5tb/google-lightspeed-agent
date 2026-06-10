@@ -17,7 +17,7 @@ from a2a.types import (
 )
 
 from lightspeed_agent.config import get_settings
-from lightspeed_agent.tools.skills import get_skills_for_agent_card
+from lightspeed_agent.tools.a2a_skills import get_skills_for_agent_card
 
 
 def _build_skills() -> list[AgentSkill]:

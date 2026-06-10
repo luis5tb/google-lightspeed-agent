@@ -131,7 +131,7 @@ return {1, "ok", min_remaining_minute, min_remaining_hour, 0, 0}
 
     async def verify_connection(self) -> None:
         """Fail fast when Redis is not reachable."""
-        await self._redis.ping()  # type: ignore[misc]
+        await self._redis.ping()
 
     async def close(self) -> None:
         """Close Redis resources."""
@@ -154,7 +154,7 @@ return {1, "ok", min_remaining_minute, min_remaining_hour, 0, 0}
             redis_keys.append(f"{self._key_prefix}:{principal_key}:h")
 
         try:
-            result = await self._redis.eval(  # type: ignore[misc]
+            result = await self._redis.eval(
                 self.LUA_CHECK_AND_INCREMENT,
                 len(redis_keys),
                 *redis_keys,
@@ -173,9 +173,7 @@ return {1, "ok", min_remaining_minute, min_remaining_hour, 0, 0}
         exceeded = str(result[1])
         principal_key_index = int(result[5])
         limited_principal = (
-            principal_keys[(principal_key_index - 1) // 2]
-            if principal_key_index > 0
-            else "none"
+            principal_keys[(principal_key_index - 1) // 2] if principal_key_index > 0 else "none"
         )
 
         if allowed:
@@ -221,6 +219,9 @@ def get_redis_rate_limiter() -> RedisRateLimiter:
 class RateLimitMiddleware(BaseHTTPMiddleware):
     """Middleware for global Redis-backed rate limiting."""
 
+    # Counter for fail-open events (Redis unavailable)
+    _fail_open_count: int = 0
+
     # Default paths to skip rate limiting
     DEFAULT_SKIP_PATHS: set[str] = {
         "/docs",
@@ -230,8 +231,8 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
     # Default paths that should be rate limited
     DEFAULT_RATE_LIMITED_PATHS: set[str] = {
-        "/",                            # A2A JSON-RPC endpoint
-        "/.well-known/agent.json",      # AgentCard discovery
+        "/",  # A2A JSON-RPC endpoint
+        "/.well-known/agent.json",  # AgentCard discovery
         "/.well-known/agent-card.json",  # AgentCard alias
     }
 
@@ -249,9 +250,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             if rate_limited_paths is not None
             else self.DEFAULT_RATE_LIMITED_PATHS
         )
-        self._skip_paths = (
-            skip_paths if skip_paths is not None else self.DEFAULT_SKIP_PATHS
-        )
+        self._skip_paths = skip_paths if skip_paths is not None else self.DEFAULT_SKIP_PATHS
 
     async def dispatch(
         self,
@@ -274,9 +273,11 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             # Fail open: allow the request through when Redis is unavailable.
             # Blocking all traffic on a rate-limiter outage would be a
             # self-inflicted denial of service.
+            RateLimitMiddleware._fail_open_count += 1
             logger.warning(
                 "Rate limiter backend unavailable, allowing request (fail-open). "
-                "principals=%s",
+                "fail_open_count=%d principals=%s",
+                RateLimitMiddleware._fail_open_count,
                 principals,
             )
             response = await call_next(request)

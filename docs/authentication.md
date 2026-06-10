@@ -25,14 +25,16 @@ Clients obtain access tokens directly from Red Hat SSO using their DCR-issued cr
 |            Marketplace Handler (8001)                  |                  |
 |                                                        |                  |
 |  +---------------------------------------------------+ |                  |
-|  |             Hybrid /dcr Endpoint                  | |                  |
+|  |  POST /pubsub            POST /dcr                | |                  |
+|  |  (Google OIDC verified)  (DCR requests)            | |                  |
 |  |                                                   | |                  |
 |  |  Pub/Sub path:         DCR path:                  | |                  |
-|  |  - Decode msg          - Validate Google JWT  [3] | |                  |
-|  |  - Filter by product   - Verify order in DB       | |                  |
-|  |  - Approve entitlement - Create OAuth client  [4] | |                  |
-|  |    via Procurement API - Return client_id +       | |                  |
-|  |  - Store entitlement     client_secret            | |                  |
+|  |  - Verify OIDC token   - Validate Google JWT  [3] | |                  |
+|  |  - Decode msg          - Verify order in DB       | |                  |
+|  |  - Filter by product   - Create OAuth client  [4] | |                  |
+|  |  - Approve entitlement - Return client_id +       | |                  |
+|  |    via Procurement API   client_secret             | |                  |
+|  |  - Store entitlement                              | |                  |
 |  +---+--------------------+----------+---------------+ |                  |
 |      |                    |          |                 |                  |
 |      v                    |          v                 |                  |
@@ -219,12 +221,15 @@ default: `api.console,api.ocm`).
 
 In addition to checking that required scopes are present, the agent enforces an
 **allowlist** of permitted scopes via `AGENT_ALLOWED_SCOPES` (comma-separated,
-default: `openid,profile,email,api.console,api.ocm`).  Tokens carrying scopes
+default: `openid,profile,email,api.console,api.ocm,metering:admin`).  Tokens carrying scopes
 outside this list are rejected with **403 Forbidden**.
 
 This is a defense-in-depth measure: since the agent forwards the caller's JWT
 to the MCP sidecar and downstream APIs, restricting scopes prevents tokens with
 elevated privileges from being exercised against those services.
+
+The `metering:admin` scope is included in the default allowlist because
+DCR-created clients may carry it for usage metering operations via Red Hat SSO.
 
 All permitted scopes must be explicitly listed in `AGENT_ALLOWED_SCOPES`.
 
@@ -293,9 +298,9 @@ RED_HAT_SSO_CLIENT_SECRET=your-client-secret
 # Required scopes checked during token introspection (comma-separated, default: api.console,api.ocm)
 AGENT_REQUIRED_SCOPE=api.console,api.ocm
 
-# Allowed scopes allowlist (comma-separated, default: openid,profile,email,api.console,api.ocm)
+# Allowed scopes allowlist (comma-separated, default: openid,profile,email,api.console,api.ocm,metering:admin)
 # Tokens carrying scopes outside this list are rejected (HTTP 403).
-AGENT_ALLOWED_SCOPES=openid,profile,email,api.console,api.ocm
+AGENT_ALLOWED_SCOPES=openid,profile,email,api.console,api.ocm,metering:admin
 ```
 
 ### Registering an OAuth Client

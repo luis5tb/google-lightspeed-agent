@@ -8,15 +8,20 @@ FROM registry.access.redhat.com/ubi10/python-312-minimal:latest as builder
 
 WORKDIR /opt/app-root/src
 
-# Install Python dependencies
-COPY pyproject.toml README.md ./
-RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir ".[agent]"
+# Install Python dependencies from lock file
+COPY requirements-agent.txt ./
+RUN pip install --no-cache-dir --upgrade pip uv && \
+    uv pip install --no-cache-dir --require-hashes -r requirements-agent.txt
 
 # =============================================================================
 # Production Stage
 # =============================================================================
 FROM registry.access.redhat.com/ubi10/python-312-minimal:latest as production
+
+# Apply latest security patches (requires root; use only public UBI repos for CI compatibility)
+USER 0
+RUN microdnf upgrade -y --disablerepo='*' --enablerepo='ubi-*' && microdnf clean all
+USER 1001
 
 # Labels for container metadata
 LABEL org.opencontainers.image.title="Red Hat Lightspeed Agent for Google Cloud"
@@ -36,8 +41,9 @@ COPY src/ ./src/
 COPY agent.py ./
 COPY pyproject.toml README.md ./
 
-# Install the application
-RUN pip install --no-cache-dir -e ".[agent]"
+# Install the application (dependencies already installed from builder)
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir --no-deps -e .
 
 # Create directory for data (if using SQLite)
 RUN mkdir -p /opt/app-root/src/data
