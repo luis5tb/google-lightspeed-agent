@@ -30,6 +30,8 @@ def create_mcp_header_provider() -> Callable[["ReadonlyContext"], dict[str, str]
         A callable that takes ReadonlyContext and returns headers dict.
     """
 
+    audit_enabled = get_settings().audit_logging_enabled
+
     def header_provider(context: "ReadonlyContext") -> dict[str, str]:
         """Provide headers for MCP requests.
 
@@ -46,7 +48,7 @@ def create_mcp_header_provider() -> Callable[["ReadonlyContext"], dict[str, str]
             token, token_exp = token_info
             now = datetime.now(UTC)
 
-            if get_settings().audit_logging_enabled:
+            if audit_enabled:
                 logger.info(
                     "Forwarding JWT to MCP server "
                     "(event_type=mcp_jwt_forwarded, user_id=%s, org_id=%s, "
