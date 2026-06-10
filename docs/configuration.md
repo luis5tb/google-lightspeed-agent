@@ -176,6 +176,7 @@ SKILLS_DIR=/opt/agent-skills  # Optional: load custom skills from this directory
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `DATABASE_URL` | `sqlite+aiosqlite:///./lightspeed_agent.db` | Marketplace database connection URL (orders, DCR clients, auth) |
+| `DATABASE_REQUIRE_SSL` | `false` | Require SSL/TLS for PostgreSQL connections. Applies to both `DATABASE_URL` and `SESSION_DATABASE_URL`. Not needed for Cloud SQL Proxy (encryption at infrastructure layer). |
 | `SESSION_BACKEND` | `memory` | Session storage backend: `memory` (in-memory, no persistence) or `database` (PostgreSQL, persistent) |
 | `SESSION_DATABASE_URL` | *(empty)* | Session database URL for ADK sessions. Required when `SESSION_BACKEND=database`. |
 
@@ -220,6 +221,22 @@ This separation ensures:
 - Agents only access session data, not marketplace/auth data
 - Compromised agents can't access DCR credentials or order information
 - Different retention policies can be applied to sessions vs. marketplace data
+
+**SSL/TLS Encryption (Direct TCP Connections):**
+
+When connecting to PostgreSQL over direct TCP (not Cloud SQL Proxy), enable SSL to encrypt
+database traffic in transit:
+
+```bash
+DATABASE_REQUIRE_SSL=true
+```
+
+This adds `ssl=True` to the `asyncpg` connection arguments for both `DATABASE_URL` and
+`SESSION_DATABASE_URL`. The agent logs a warning at startup if this setting is disabled
+on Cloud Run with a PostgreSQL URL.
+
+> **Cloud SQL Proxy:** If using Cloud SQL Proxy, SSL is provided at the infrastructure layer
+> by the proxy itself. `DATABASE_REQUIRE_SSL` is not needed and can remain `false`.
 
 **Switching to In-Memory Sessions:**
 
@@ -287,9 +304,17 @@ RATE_LIMIT_REQUESTS_PER_HOUR=2000
 
 See [Rate Limiting](rate-limiting.md) for details on the sliding window algorithm.
 
-### Load Balancer (Cloud Run)
+### Google Cloud Pub/Sub
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `PUBSUB_AUDIENCE` | *(empty)* | Expected audience in Google Cloud Pub/Sub OIDC tokens. Set to the marketplace handler's URL for strict token binding. If empty, tokens are verified for signature/expiry but not audience. |
+
+### Load Balancer (Cloud Run Only)
 
 Optional per-service Google Cloud Load Balancers (GCLB) provide SSL termination, DDoS protection, and Cloud Armor WAF. See [Cloud Run deployment](../deploy/cloudrun/README.md#load-balancer-optional) for full details.
+
+> **OpenShift deployments** use Routes for TLS termination instead of GCLB. These variables do not apply. See [OpenShift deployment](../deploy/openshift/README.md) for OCP-specific configuration.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
@@ -425,12 +450,15 @@ gcloud logging read 'jsonPayload.org_id="org-7" AND jsonPayload.message=~"mcp_jw
 |----------|---------|-------------|
 | `DEBUG` | `false` | Enable debug mode (exposes /docs) |
 | `SKIP_JWT_VALIDATION` | `false` | Skip JWT validation (dev only!) |
+| `SKIP_ORDER_VALIDATION` | `false` | Skip marketplace order-id validation. JWT introspection still occurs but the entitlement check is skipped. Blocked in Cloud Run (`K_SERVICE` check). Use for deployments without a marketplace handler (e.g., OpenShift hybrid mode). |
+| `SKIP_DCR_JWT_VALIDATION` | `false` | Skip DCR `software_statement` JWT signature verification. Accepts self-signed JWTs for DCR requests. Does not affect agent Bearer token auth. |
 
 **Development:**
 
 ```bash
 DEBUG=true
 SKIP_JWT_VALIDATION=true
+SKIP_ORDER_VALIDATION=true    # No marketplace handler in dev
 LOG_LEVEL=DEBUG
 LOG_FORMAT=text
 AGENT_LOGGING_DETAIL=detailed
@@ -547,6 +575,7 @@ google_api_key
 # .env.development
 DEBUG=true
 SKIP_JWT_VALIDATION=true
+SKIP_ORDER_VALIDATION=true    # No marketplace handler in dev
 LOG_LEVEL=DEBUG
 LOG_FORMAT=text
 AGENT_LOGGING_DETAIL=detailed

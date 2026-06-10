@@ -73,6 +73,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       python: ${{ steps.filter.outputs.python }}
+      pyproject: ${{ steps.filter.outputs.pyproject }}
     steps:
       - uses: actions/checkout@v4
       - uses: dorny/paths-filter@v3
@@ -88,11 +89,13 @@ jobs:
               - 'Containerfile'
               - 'Containerfile.marketplace-handler'
               - 'agent.py'
+            pyproject:
+              - 'pyproject.toml'
 
   lock-file-check:
     name: Lock file verification
     needs: [detect-changes]
-    if: needs.detect-changes.outputs.python == 'true'
+    if: needs.detect-changes.outputs.pyproject == 'true'
     runs-on: ubuntu-latest
     container:
       image: quay.io/centos/centos:stream9
@@ -101,29 +104,33 @@ jobs:
 
       - name: Install Python and uv
         run: |
-          dnf install -y python3.12 python3.12-pip python3.12-devel diffutils
+          dnf install -y python3.12 python3.12-pip python3.12-devel diffutils make
           python3.12 -m pip install uv
 
-      - name: Verify agent lock file
-        run: |
-          python3.12 -m uv pip compile --generate-hashes --python-version=3.12 --python-platform=linux \
-            --extra agent --output-file=/tmp/requirements-agent-check.txt pyproject.toml
-          diff <(tail -n +3 requirements-agent.txt) <(tail -n +3 /tmp/requirements-agent-check.txt) || \
-            (echo "ERROR: requirements-agent.txt is out of sync. Run 'make lock' to update." && exit 1)
+      - name: Verify lock files
+        run: make lock-check
 
-      - name: Verify handler lock file
-        run: |
-          python3.12 -m uv pip compile --generate-hashes --python-version=3.12 --python-platform=linux \
-            --output-file=/tmp/requirements-handler-check.txt pyproject.toml
-          diff <(tail -n +3 requirements-handler.txt) <(tail -n +3 /tmp/requirements-handler-check.txt) || \
-            (echo "ERROR: requirements-handler.txt is out of sync. Run 'make lock' to update." && exit 1)
+  vulnerability-scan:
+    name: Vulnerability scan (pip-audit)
+    needs: [lock-file-check, detect-changes]
+    if: >-
+      !cancelled() &&
+      needs.detect-changes.outputs.python == 'true' &&
+      (needs.lock-file-check.result == 'success' || needs.lock-file-check.result == 'skipped')
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    container:
+      image: quay.io/centos/centos:stream9
+    steps:
+      - uses: actions/checkout@v4
 
-      - name: Verify dev lock file
+      - name: Install Python and pip-audit
         run: |
-          python3.12 -m uv pip compile --generate-hashes --python-version=3.12 --python-platform=linux \
-            --extra dev --output-file=/tmp/requirements-dev-check.txt pyproject.toml
-          diff <(tail -n +3 requirements-dev.txt) <(tail -n +3 /tmp/requirements-dev-check.txt) || \
-            (echo "ERROR: requirements-dev.txt is out of sync. Run 'make lock' to update." && exit 1)
+          dnf install -y python3.12 python3.12-pip make
+          python3.12 -m pip install pip-audit
+
+      - name: Scan dependencies
+        run: make audit
 
   lint:
     name: Lint
@@ -132,21 +139,23 @@ jobs:
       !cancelled() &&
       needs.detect-changes.outputs.python == 'true' &&
       (needs.konflux-verify.result == 'success' || needs.konflux-verify.result == 'skipped') &&
-      needs.lock-file-check.result == 'success'
+      (needs.lock-file-check.result == 'success' || needs.lock-file-check.result == 'skipped')
     runs-on: ubuntu-latest
     container:
       image: quay.io/centos/centos:stream9
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Python
-        run: dnf install -y python3.12 python3.12-pip python3.12-devel
+      - name: Install Python and uv
+        run: |
+          dnf install -y python3.12 python3.12-pip python3.12-devel
+          python3.12 -m pip install uv
 
       - name: Install dependencies
         run: |
-          python3.12 -m pip install --require-hashes -r requirements-agent.txt
-          python3.12 -m pip install --require-hashes -r requirements-dev.txt
-          python3.12 -m pip install --no-deps -e .
+          uv pip install --system --require-hashes -r requirements-agent.txt --python python3.12
+          uv pip install --system --require-hashes -r requirements-dev.txt --python python3.12
+          uv pip install --system --no-deps -e . --python python3.12
 
       - name: Run ruff
         run: python3.12 -m ruff check src/ tests/
@@ -161,21 +170,23 @@ jobs:
       !cancelled() &&
       needs.detect-changes.outputs.python == 'true' &&
       (needs.konflux-verify.result == 'success' || needs.konflux-verify.result == 'skipped') &&
-      needs.lock-file-check.result == 'success'
+      (needs.lock-file-check.result == 'success' || needs.lock-file-check.result == 'skipped')
     runs-on: ubuntu-latest
     container:
       image: quay.io/centos/centos:stream9
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Python
-        run: dnf install -y python3.12 python3.12-pip python3.12-devel
+      - name: Install Python and uv
+        run: |
+          dnf install -y python3.12 python3.12-pip python3.12-devel
+          python3.12 -m pip install uv
 
       - name: Install dependencies
         run: |
-          python3.12 -m pip install --require-hashes -r requirements-agent.txt
-          python3.12 -m pip install --require-hashes -r requirements-dev.txt
-          python3.12 -m pip install --no-deps -e .
+          uv pip install --system --require-hashes -r requirements-agent.txt --python python3.12
+          uv pip install --system --require-hashes -r requirements-dev.txt --python python3.12
+          uv pip install --system --no-deps -e . --python python3.12
 
       - name: Run tests
         run: python3.12 -m pytest tests/ -v
@@ -187,7 +198,7 @@ jobs:
       !cancelled() &&
       needs.detect-changes.outputs.python == 'true' &&
       (needs.konflux-verify.result == 'success' || needs.konflux-verify.result == 'skipped') &&
-      needs.lock-file-check.result == 'success'
+      (needs.lock-file-check.result == 'success' || needs.lock-file-check.result == 'skipped')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -195,10 +206,39 @@ jobs:
       - name: Build image
         run: podman build -t lightspeed-agent:ci -f Containerfile .
 
+      - name: Save image as artifact
+        run: podman save lightspeed-agent:ci -o /tmp/image.tar
+
+      - name: Upload image artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: container-image
+          path: /tmp/image.tar
+          retention-days: 1
+
+  container-scan:
+    name: Container image scan (Trivy)
+    needs: [build]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download image artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: container-image
+          path: /tmp
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          input: '/tmp/image.tar'
+          format: 'table'
+          severity: 'CRITICAL,HIGH'
+          exit-code: '1'
+
   ci-gate:
     name: CI Gate
     if: always()
-    needs: [konflux-verify, lock-file-check, lint, test, build]
+    needs: [konflux-verify, lock-file-check, lint, test, build, container-scan]
     runs-on: ubuntu-latest
     steps:
       - name: Check all jobs passed
@@ -208,13 +248,13 @@ jobs:
             echo "Konflux verification failed: ${{ needs.konflux-verify.result }}"
             exit 1
           fi
-          # lock-file-check is skipped when no Python/dependency files changed — that's expected
+          # lock-file-check is skipped when pyproject.toml was not changed — that's expected
           if [[ "${{ needs.lock-file-check.result }}" != "success" && "${{ needs.lock-file-check.result }}" != "skipped" ]]; then
             echo "Lock file check failed: ${{ needs.lock-file-check.result }}"
             exit 1
           fi
-          # lint, test, build are skipped when no Python/dependency files changed — that's expected
-          for job_result in "${{ needs.lint.result }}" "${{ needs.test.result }}" "${{ needs.build.result }}"; do
+          # lint, test, build, container-scan are skipped when no Python/dependency files changed — that's expected
+          for job_result in "${{ needs.lint.result }}" "${{ needs.test.result }}" "${{ needs.build.result }}" "${{ needs.container-scan.result }}"; do
             if [[ "$job_result" != "success" && "$job_result" != "skipped" ]]; then
               echo "One or more CI jobs failed or were cancelled."
               echo "  konflux-verify:  ${{ needs.konflux-verify.result }}"
@@ -222,6 +262,7 @@ jobs:
               echo "  lint:            ${{ needs.lint.result }}"
               echo "  test:            ${{ needs.test.result }}"
               echo "  build:           ${{ needs.build.result }}"
+              echo "  container-scan:  ${{ needs.container-scan.result }}"
               exit 1
             fi
           done

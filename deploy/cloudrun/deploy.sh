@@ -32,7 +32,7 @@
 #   │  (Cloud Run #1)         │     │    (Cloud Run #2)       │
 #   │                         │     │                         │
 #   │  - POST /dcr            │     │  - POST / (A2A)         │
-#   │  - Pub/Sub push         │     │  - /.well-known/agent   │
+#   │  - POST /pubsub (OIDC)  │     │  - /.well-known/agent   │
 #   │  - Account approval     │     │  - OAuth flow           │
 #   │  - GMA SSO API          │     │  - MCP sidecar          │
 #   └─────────────────────────┘     └─────────────────────────┘
@@ -131,6 +131,12 @@ while [[ $# -gt 0 ]]; do
             shift 2
             ;;
         --allow-unauthenticated)
+            # WARNING: This grants allUsers the roles/run.invoker IAM binding,
+            # allowing any internet client to invoke the service. When used
+            # WITHOUT a Google Cloud Load Balancer (ENABLE_LB_AGENT/ENABLE_LB_HANDLER),
+            # the service is fully public with no Cloud Armor WAF protection.
+            # The application has its own JWT authentication middleware, but
+            # defense-in-depth recommends using GCLB + Cloud Armor in production.
             ALLOW_UNAUTH=true
             shift
             ;;
@@ -180,6 +186,18 @@ if [[ -z "$AGENT_IMAGE" ]]; then
 fi
 if [[ -z "$HANDLER_IMAGE" ]]; then
     HANDLER_IMAGE="gcr.io/${PROJECT_ID}/${HANDLER_SERVICE_NAME}:${IMAGE_TAG}"
+fi
+
+if [[ "$ALLOW_UNAUTH" == "true" ]]; then
+    if [[ "$ENABLE_LB_AGENT" != "true" && "$ENABLE_LB_HANDLER" != "true" ]]; then
+        log_warn "============================================================"
+        log_warn "  --allow-unauthenticated is set WITHOUT a load balancer."
+        log_warn "  Services will be publicly accessible with NO Cloud Armor"
+        log_warn "  WAF protection. This is acceptable for dev/testing but"
+        log_warn "  NOT recommended for production. Enable GCLB for"
+        log_warn "  defense-in-depth: ENABLE_LB_AGENT=true ENABLE_LB_HANDLER=true"
+        log_warn "============================================================"
+    fi
 fi
 
 log_info "Deploying to Cloud Run"
@@ -322,7 +340,7 @@ configure_pubsub_push() {
         return
     fi
 
-    local push_endpoint="${handler_url}/dcr"
+    local push_endpoint="${handler_url}/pubsub"
 
     # Grant the Pub/Sub Invoker SA permission to invoke the marketplace-handler.
     # This is a service-level binding (not project-level), following least privilege.
@@ -350,6 +368,7 @@ configure_pubsub_push() {
         gcloud pubsub subscriptions update "$PUBSUB_SUBSCRIPTION" \
             --push-endpoint="$push_endpoint" \
             --push-auth-service-account="$PUBSUB_INVOKER_SA" \
+            --push-auth-token-audience="$push_endpoint" \
             --ack-deadline=60 \
             --project="$PROJECT_ID" \
             --quiet
@@ -360,14 +379,24 @@ configure_pubsub_push() {
             --topic="$PUBSUB_TOPIC" \
             --push-endpoint="$push_endpoint" \
             --push-auth-service-account="$PUBSUB_INVOKER_SA" \
+            --push-auth-token-audience="$push_endpoint" \
             --ack-deadline=60 \
             --project="$PROJECT_ID" \
             $impersonate_flag
     fi
 
+    # Update the handler's PUBSUB_AUDIENCE to match the subscription's audience
+    log_info "Setting PUBSUB_AUDIENCE=$push_endpoint on $HANDLER_SERVICE_NAME..."
+    gcloud run services update "$HANDLER_SERVICE_NAME" \
+        --region="$REGION" \
+        --project="$PROJECT_ID" \
+        --update-env-vars="PUBSUB_AUDIENCE=${push_endpoint}" \
+        --quiet 2>&1 | grep -v "Deploying\|Creating\|Routing" || true
+
     log_info "Pub/Sub push subscription configured:"
     log_info "  Subscription: $PUBSUB_SUBSCRIPTION"
     log_info "  Push endpoint: $push_endpoint"
+    log_info "  Audience: $push_endpoint"
     log_info "  Auth SA: $PUBSUB_INVOKER_SA"
 }
 
@@ -449,13 +478,27 @@ setup_service_lb() {
         fi
 
         # Enable JSON parsing for JSON-RPC/DCR request bodies and verbose logging
-        gcloud compute security-policies update "$policy_name" \
+        # --request-body-inspection-size requires gcloud beta; fall back to GA if unavailable
+        local update_output
+        if update_output=$(gcloud beta compute security-policies update "$policy_name" \
             --json-parsing=STANDARD \
             --request-body-inspection-size=64kB \
             --log-level=VERBOSE \
             --global \
-            --project="$PROJECT_ID"
-        log_info "Security policy '$policy_name' configured: JSON parsing, 64kB body inspection, verbose logging"
+            --project="$PROJECT_ID" 2>&1); then
+            log_info "Security policy '$policy_name' configured: JSON parsing, 64kB body inspection, verbose logging"
+        elif echo "$update_output" | grep -q "request-body-inspection-size"; then
+            gcloud compute security-policies update "$policy_name" \
+                --json-parsing=STANDARD \
+                --log-level=VERBOSE \
+                --global \
+                --project="$PROJECT_ID" || { log_error "Failed to update security policy '$policy_name'"; exit 1; }
+            log_info "Security policy '$policy_name' configured: JSON parsing, verbose logging (body inspection size requires gcloud beta)"
+        else
+            echo "$update_output" >&2
+            log_error "Failed to update security policy '$policy_name'"
+            exit 1
+        fi
 
         # Add preconfigured WAF rules (OWASP ModSecurity CRS)
         declare -A WAF_RULES=(
@@ -471,17 +514,19 @@ setup_service_lb() {
             [1800]="cve-canary"
         )
 
+        # Note: security-policies and backend-services commands use --global because
+        # they are top-level global resources. The rules subcommands (rules describe,
+        # rules create) infer scope from --security-policy and reject --global.
         local -a WAF_PRIORITIES=(900 1000 1100 1200 1300 1400 1500 1600 1700 1800)
         for priority in "${WAF_PRIORITIES[@]}"; do
             local waf_rule_name="${WAF_RULES[$priority]}"
             if ! gcloud compute security-policies rules describe "$priority" \
                 --security-policy="$policy_name" \
-                --global --project="$PROJECT_ID" &>/dev/null; then
+                --project="$PROJECT_ID" &>/dev/null; then
                 gcloud compute security-policies rules create "$priority" \
                     --security-policy="$policy_name" \
                     --expression="evaluatePreconfiguredWaf('${waf_rule_name}', {'sensitivity': ${waf_sensitivity}})" \
                     --action=deny-403 \
-                    --global \
                     --project="$PROJECT_ID"
                 log_info "WAF rule '${waf_rule_name}' added at priority $priority"
             else

@@ -10,13 +10,18 @@ WORKDIR /opt/app-root/src
 
 # Install Python dependencies from lock file
 COPY requirements-agent.txt ./
-RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir --require-hashes -r requirements-agent.txt
+RUN pip install --no-cache-dir --upgrade pip uv && \
+    uv pip install --no-cache-dir --require-hashes -r requirements-agent.txt
 
 # =============================================================================
 # Production Stage
 # =============================================================================
 FROM registry.access.redhat.com/ubi10/python-312-minimal:latest as production
+
+# Apply latest security patches (requires root; use only public UBI repos for CI compatibility)
+USER 0
+RUN microdnf upgrade -y --disablerepo='*' --enablerepo='ubi-*' && microdnf clean all
+USER 1001
 
 # Labels for container metadata
 LABEL org.opencontainers.image.title="Red Hat Lightspeed Agent for Google Cloud"

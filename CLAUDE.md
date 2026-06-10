@@ -47,6 +47,7 @@ make lock                              # Regenerate all lock files (always run b
 make lock-agent                        # Regenerate agent lock file only
 make lock-handler                      # Regenerate marketplace handler lock file only
 make lock-dev                          # Regenerate dev lock file only
+make audit                             # Scan dependencies for known vulnerabilities (pip-audit)
 ```
 
 **Workflow:**
@@ -106,13 +107,13 @@ make cve-scan                          # Scan for CVEs with Trivy
 
 ### Before Pushing
 
-Always regenerate lock files, run lint and tests before pushing commits:
+Run lint and tests before pushing commits:
 
 ```bash
-make lock && make lint && make test
+make lint && make test
 ```
 
-CI blocks merge on lint/test/lock-file failures — catching issues locally saves round-trip time.
+If you modified `pyproject.toml`, also regenerate lock files (`make lock`) and commit them together. CI only enforces lock file sync when `pyproject.toml` changes.
 
 ## Architecture
 
@@ -122,7 +123,7 @@ The system runs as two separate FastAPI services with separate concerns:
 
 1. **Lightspeed Agent** (port 8000, `src/lightspeed_agent/main.py`) — The AI agent service. Scales to zero on Cloud Run. Handles A2A protocol requests (JSON-RPC 2.0 at `/`), serves the AgentCard at `/.well-known/agent.json`. Uses ADK `LlmAgent` with MCP tools loaded from the sidecar and ADK AI Skills for modular behavioral instructions.
 
-2. **Marketplace Handler** (port 8001, `src/lightspeed_agent/marketplace/app.py`) — Always-on service for Google Cloud Marketplace Pub/Sub provisioning events and Dynamic Client Registration (DCR). Has a single hybrid `/dcr` endpoint that routes Pub/Sub messages vs DCR requests based on request content.
+2. **Marketplace Handler** (port 8001, `src/lightspeed_agent/marketplace/app.py`) — Always-on service for Google Cloud Marketplace Pub/Sub provisioning events and Dynamic Client Registration (DCR). Has separate `/dcr` (DCR requests) and `/pubsub` (Pub/Sub events with Google OIDC verification) endpoints.
 
 ### Database Isolation
 
@@ -160,9 +161,26 @@ Agent behavioral instructions use ADK's progressive-disclosure Skills system ins
 ### Key Middleware Stack (request order, outermost first)
 1. CORS
 2. Request body size limit (`security/body_limit.py`) — 10 MB agent, 1 MB marketplace handler
-3. Security headers (`security/middleware.py`) — HSTS, X-Content-Type-Options, X-Frame-Options
+3. Security headers (`security/middleware.py`) — HSTS, CSP, X-Content-Type-Options,
+   X-Frame-Options, Referrer-Policy, Permissions-Policy, Cache-Control
 4. Redis rate limiting (`ratelimit/middleware.py`) — 60 req/min, 1000 req/hour
 5. JWT authentication (`auth/middleware.py`)
+
+### Deployment Modes
+
+The agent supports three deployment targets. The application code is identical — differences are in infrastructure-level security and orchestration:
+
+| Target | Ingress | WAF | Network Isolation | Deployment Config |
+|---|---|---|---|---|
+| **Cloud Run** | GCLB with managed SSL | Cloud Armor (OWASP CRS, DDoS) | VPC + Cloud Run ingress restrictions | `deploy/cloudrun/` |
+| **OpenShift** | Routes with TLS edge termination | None built-in (use external WAF if needed) | NetworkPolicies for DB/Redis | `deploy/openshift/` (Helm) |
+| **Podman** | Direct port binding | None | Host-level | `Makefile` targets |
+
+OpenShift supports two sub-modes via Helm (`deploymentMode` value):
+- **hybrid** (default) — Agent + Redis on OCP; marketplace handler stays on Cloud Run. Order validation skipped (`SKIP_ORDER_VALIDATION=true`).
+- **standalone** — Everything on OCP including handler, UI, and PostgreSQL. Full order lifecycle with local marketplace database.
+
+Application-level protections (body size limits, security headers, rate limiting, JWT auth) apply identically on all platforms. See `deploy/openshift/README.md` for OCP-specific details.
 
 ### DCR (Dynamic Client Registration)
 
@@ -170,7 +188,7 @@ Creates OAuth tenant clients in Red Hat SSO via the GMA API (`dcr/gma_client.py`
 
 ### Entitlement Provisioning Lifecycle
 
-Google Cloud Marketplace sends Pub/Sub events to the `/dcr` endpoint as orders progress through their lifecycle. The `ProcurementService` (`marketplace/service.py`) processes each event type:
+Google Cloud Marketplace sends Pub/Sub events to the `/pubsub` endpoint as orders progress through their lifecycle. The `ProcurementService` (`marketplace/service.py`) processes each event type:
 
 1. **`ENTITLEMENT_CREATION_REQUESTED`** — Customer initiates an order. The handler:
    - Creates a local entitlement record in `PENDING_APPROVAL` state
@@ -226,6 +244,7 @@ All configuration is via environment variables, managed through Pydantic setting
 
 **Database:**
 - `DATABASE_URL` / `SESSION_DATABASE_URL` (PostgreSQL or SQLite)
+- `DATABASE_REQUIRE_SSL` (enforce SSL for PostgreSQL; not needed for Cloud SQL Proxy)
 
 **Auth:**
 - `RED_HAT_SSO_CLIENT_ID` / `RED_HAT_SSO_CLIENT_SECRET`

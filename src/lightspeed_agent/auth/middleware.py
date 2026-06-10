@@ -94,9 +94,6 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
         "/marketplace/pubsub",  # Pub/Sub uses Google-signed tokens
     }
 
-    # Path prefixes that are public
-    PUBLIC_PREFIXES = ("/marketplace/",)
-
     def __init__(self, app: Any):
         super().__init__(app)
         self._settings = get_settings()
@@ -142,9 +139,19 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
             introspector = get_token_introspector()
             user = await introspector.validate_token(token)
 
-            order_id = await self._resolve_and_validate_order(client_id=user.client_id)
-            if not order_id:
-                return self._forbidden_response("No active order found for this client")
+            order_id: str | None = None
+            if self._settings.skip_order_validation:
+                logger.debug(
+                    "Skipping order validation (skip_order_validation=true)"
+                )
+            else:
+                order_id = await self._resolve_and_validate_order(
+                    client_id=user.client_id
+                )
+                if not order_id:
+                    return self._forbidden_response(
+                        "No active order found for this client"
+                    )
 
             # Store user in request state for access in handlers
             request.state.user = user
@@ -182,10 +189,6 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
         """Check if path/method combination is public."""
         # Explicit public paths
         if path in self.PUBLIC_PATHS:
-            return True
-
-        # Public prefixes
-        if path.startswith(self.PUBLIC_PREFIXES):
             return True
 
         # GET requests to root are public (for compatibility)

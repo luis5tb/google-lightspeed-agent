@@ -8,6 +8,8 @@ from typing import Literal
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+logger = logging.getLogger(__name__)
+
 
 class Settings(BaseSettings):
     """Application settings loaded from environment variables."""
@@ -191,6 +193,16 @@ class Settings(BaseSettings):
         ),
     )
 
+    # Google Cloud Pub/Sub OIDC verification
+    pubsub_audience: str = Field(
+        default="",
+        description=(
+            "Expected audience claim in Google Cloud Pub/Sub OIDC tokens. "
+            "Set to your push subscription's audience value "
+            "(typically the service URL, e.g., https://marketplace-handler-xxx.run.app)."
+        ),
+    )
+
     # Google Cloud Service Control
     service_control_service_name: str = Field(
         default="",
@@ -329,6 +341,10 @@ class Settings(BaseSettings):
         default=10,
         description="Maximum overflow connections beyond pool size",
     )
+    database_require_ssl: bool = Field(
+        default=False,
+        description="Require SSL/TLS for PostgreSQL database connections",
+    )
 
     # Session configuration: controls ADK session storage backend
     # Separate from marketplace DB for security isolation - each agent can have its own
@@ -411,6 +427,48 @@ class Settings(BaseSettings):
         default=False,
         description="Skip JWT validation (development only)",
     )
+    skip_order_validation: bool = Field(
+        default=False,
+        description="Skip marketplace order-id validation (non-Cloud-Run only). "
+        "When enabled, JWT token "
+        "introspection still occurs but the order/entitlement check is skipped. "
+        "Use for deployments without the Google Cloud Marketplace handler (e.g., OpenShift).",
+    )
+    skip_dcr_jwt_validation: bool = Field(
+        default=False,
+        description="Skip DCR software_statement JWT signature and issuer verification "
+        "(non-Cloud-Run only). "
+        "When enabled, the handler accepts self-signed JWTs for DCR requests "
+        "without verifying against Google's certificates. Does not affect "
+        "the agent's Bearer token authentication.",
+    )
+    skip_pubsub_oidc_verification: bool = Field(
+        default=False,
+        description="Skip Google OIDC token verification on the /pubsub endpoint "
+        "(non-Cloud-Run only). "
+        "Enable for standalone deployments where simulated Pub/Sub events "
+        "are sent directly (e.g., from the standalone UI) without Google-signed tokens.",
+    )
+
+    @model_validator(mode="after")
+    def _warn_debug_in_production(self) -> "Settings":
+        """Warn when DEBUG is enabled in a Cloud Run deployment.
+
+        Cloud Run sets K_SERVICE automatically. If that variable is present,
+        this is a managed deployment and debug mode should not be enabled.
+        Unlike SKIP_JWT_VALIDATION (which raises on startup), DEBUG does not
+        bypass authentication, so we log a warning rather than refusing to start.
+        """
+        if self.debug and os.getenv("K_SERVICE"):
+            logger.warning(
+                "DEBUG=true is active in Cloud Run "
+                "(K_SERVICE=%s). "
+                "This exposes /docs, /redoc, enables wildcard CORS, "
+                "and turns on SQL echo logging. "
+                "This setting is intended for local development only.",
+                os.getenv("K_SERVICE"),
+            )
+        return self
 
     @model_validator(mode="after")
     def _block_skip_jwt_in_production(self) -> "Settings":
@@ -433,6 +491,72 @@ class Settings(BaseSettings):
             logging.getLogger(__name__).warning(
                 "AUDIT_LOGGING_ENABLED=false: PII fields will not be injected into "
                 "log records. Forensic traceability is reduced."
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _block_sqlite_in_production(self) -> "Settings":
+        """Prevent SQLite database URLs in Cloud Run production."""
+        k_service = os.getenv("K_SERVICE")
+        if not k_service:
+            return self
+        if self.database_url.lower().startswith("sqlite"):
+            raise ValueError(
+                "SQLite DATABASE_URL is not allowed in Cloud Run "
+                f"(K_SERVICE={k_service}). "
+                "Use PostgreSQL for production deployments."
+            )
+        if self.session_database_url and self.session_database_url.lower().startswith("sqlite"):
+            raise ValueError(
+                "SQLite SESSION_DATABASE_URL is not allowed in Cloud Run "
+                f"(K_SERVICE={k_service}). "
+                "Use PostgreSQL for production deployments."
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _block_skip_order_in_production(self) -> "Settings":
+        """Prevent SKIP_ORDER_VALIDATION from being enabled in production.
+
+        Cloud Run sets K_SERVICE automatically. If that variable is present,
+        this is a managed deployment and order validation must never be skipped.
+        """
+        if self.skip_order_validation and os.getenv("K_SERVICE"):
+            raise ValueError(
+                "SKIP_ORDER_VALIDATION=true is not allowed in Cloud Run "
+                f"(K_SERVICE={os.getenv('K_SERVICE')}). "
+                "This setting is intended for local development only."
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _block_skip_dcr_jwt_in_production(self) -> "Settings":
+        """Prevent SKIP_DCR_JWT_VALIDATION from being enabled in production.
+
+        Cloud Run sets K_SERVICE automatically. If that variable is present,
+        this is a managed deployment and DCR JWT validation must never be skipped.
+        """
+        if self.skip_dcr_jwt_validation and os.getenv("K_SERVICE"):
+            raise ValueError(
+                "SKIP_DCR_JWT_VALIDATION=true is not allowed in Cloud Run "
+                f"(K_SERVICE={os.getenv('K_SERVICE')}). "
+                "This setting is intended for local development only."
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _block_skip_pubsub_oidc_in_production(self) -> "Settings":
+        """Prevent SKIP_PUBSUB_OIDC_VERIFICATION from being enabled in Cloud Run.
+
+        The /pubsub endpoint on the marketplace handler verifies Google-signed
+        OIDC tokens. Skipping this is only safe in standalone/development
+        deployments where simulated events come from the UI, not Google Pub/Sub.
+        """
+        if self.skip_pubsub_oidc_verification and os.getenv("K_SERVICE"):
+            raise ValueError(
+                "SKIP_PUBSUB_OIDC_VERIFICATION=true is not allowed in Cloud Run "
+                f"(K_SERVICE={os.getenv('K_SERVICE')}). "
+                "This setting is intended for standalone/development deployments only."
             )
         return self
 
