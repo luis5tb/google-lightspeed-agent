@@ -137,7 +137,7 @@ Both fall back to SQLite for development. ORM models are in `src/lightspeed_agen
 ### Authentication Flow
 
 JWT tokens from Red Hat SSO flow through three layers:
-1. `auth/middleware.py` validates Bearer tokens — only `POST /` is protected; all other paths are public. Explicitly public paths include `/docs`, `/openapi.json`, `/redoc`, `/.well-known/agent.json`, `/.well-known/agent-card.json`, and `/marketplace/pubsub`. Health probes (`/health`, `/ready`) run on a separate probe server (see below), not the main API.
+1. `auth/middleware.py` validates Bearer tokens — only `POST /` is protected; all other paths are public. Health probes (`/health`, `/ready`) run on a separate probe server (see below), not the main API. The Marketplace Handler has its own auth (Google OIDC on `/pubsub`, DCR JWT on `/dcr`).
 2. Token is stored in `contextvars` for the request lifecycle (user_id, org_id, order_id, client_id, request_id)
 3. `tools/mcp_headers.py` forwards the caller's JWT to the MCP server so it can authenticate with console.redhat.com on the user's behalf
 
