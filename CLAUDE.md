@@ -118,22 +118,6 @@ Agent behavioral instructions use ADK's progressive-disclosure Skills system ins
 
 CORS → body size limits → security headers → rate limiting (60 req/min, 1000 req/hour) → JWT auth. See `api/app.py` for ordering and configuration.
 
-### Health Probe Server
-
-A separate lightweight uvicorn server (`probes/server.py`) runs on port 8002 (`PROBES_PORT`) alongside the main API. Provides `/health` (liveness) and `/ready` (readiness with optional async validations) endpoints for Kubernetes and Cloud Run health checking. This is independent of the main FastAPI app and its middleware stack.
-
-### Deployment Modes
-
-Three deployment targets: Cloud Run (`deploy/cloudrun/`), OpenShift via Helm (`deploy/openshift/`), and Podman (`deploy/podman/`). Application code is identical across all — differences are infrastructure-level. See `deploy/*/README.md` for platform-specific setup.
-
-### DCR (Dynamic Client Registration)
-
-Creates OAuth tenant clients in Red Hat SSO via the GMA API (`dcr/gma_client.py`). Authenticates with `GMA_CLIENT_ID`/`GMA_CLIENT_SECRET` using `scope=api.iam.clients.gma`. Client secrets are Fernet-encrypted at rest (`DCR_ENCRYPTION_KEY`).
-
-### Entitlement & Usage
-
-Orders flow through create → active → plan-change → cancel states via Pub/Sub events. See `marketplace/service.py` for event handlers and `docs/marketplace.md` for the full lifecycle. Usage metering (`api/a2a/usage_plugin.py`) tracks tokens per LLM call, with hourly reporting to Google Service Control.
-
 ## Code Layout
 
 ```
