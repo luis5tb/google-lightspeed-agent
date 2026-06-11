@@ -91,14 +91,6 @@ The system runs as two separate FastAPI services with separate concerns:
 
 2. **Marketplace Handler** (port 8001, `src/lightspeed_agent/marketplace/app.py`) — Always-on service for Google Cloud Marketplace Pub/Sub provisioning events and Dynamic Client Registration (DCR). Has separate `/dcr` (DCR requests) and `/pubsub` (Pub/Sub events with Google OIDC verification) endpoints.
 
-### Database Isolation
-
-Two separate PostgreSQL databases (security boundary):
-- **Marketplace DB** (`DATABASE_URL`) — entitlements, DCR clients, usage records. Shared by both services.
-- **Session DB** (`SESSION_DATABASE_URL`) — ADK conversation sessions. Agent-only.
-
-Both fall back to SQLite for development. ORM models are in `src/lightspeed_agent/db/models.py`.
-
 ### Authentication Flow
 
 JWT tokens from Red Hat SSO flow through three layers:
