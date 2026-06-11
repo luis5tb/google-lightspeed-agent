@@ -183,57 +183,9 @@ src/lightspeed_agent/
 
 ## Configuration
 
-All configuration is via environment variables, managed through Pydantic settings in `config/settings.py`. See `.env.example` for the complete list (30+ vars). Key variables:
+All configuration is via environment variables, managed through Pydantic settings in `config/settings.py`. See `.env.example` for the complete list (30+ vars) and `docs/configuration.md` for detailed documentation.
 
-**LLM / Google Cloud:**
-- `GOOGLE_API_KEY` or `GOOGLE_CLOUD_PROJECT` + `GOOGLE_GENAI_USE_VERTEXAI=TRUE` (LLM access)
-- `GEMINI_MODEL` (model selection, default: `gemini-2.5-flash`)
-- `LLM_PROVIDER` (default: `gemini`; set to `litellm` for LiteLLM proxy backend)
-- `LLM_MODEL`, `LLM_API_KEY`, `LLM_API_BASE` (LiteLLM provider overrides)
-- Optional Gemini HTTP retries (Google Gen AI SDK exponential backoff + jitter): `GEMINI_HTTP_RETRY_ATTEMPTS`, `GEMINI_HTTP_RETRY_INITIAL_DELAY`, `GEMINI_HTTP_RETRY_MAX_DELAY`, `GEMINI_HTTP_RETRY_EXP_BASE`, `GEMINI_HTTP_RETRY_JITTER` (see `docs/configuration.md`)
-
-**Database:**
-- `DATABASE_URL` / `SESSION_DATABASE_URL` (PostgreSQL or SQLite)
-- `DATABASE_REQUIRE_SSL` (enforce SSL for PostgreSQL; not needed for Cloud SQL Proxy)
-- `DATABASE_POOL_SIZE` (default: 5), `DATABASE_POOL_MAX_OVERFLOW` (default: 10)
-- `SESSION_BACKEND` (default: `memory`; set to `database` for persistent sessions)
-
-**Auth:**
-- `RED_HAT_SSO_CLIENT_ID` / `RED_HAT_SSO_CLIENT_SECRET`
-- `SKIP_JWT_VALIDATION` (dev only)
-
-**MCP:**
-- `MCP_TRANSPORT_MODE`, `MCP_SERVER_URL`
-
-**DCR:**
-- `DCR_ENCRYPTION_KEY`
-- `GMA_CLIENT_ID`, `GMA_CLIENT_SECRET`, `GMA_API_BASE_URL`
-- `SKIP_DCR_JWT_VALIDATION` (dev only; skip DCR JWT validation for non-Cloud-Run deployments)
-
-**Agent:**
-- `AGENT_HOST`, `AGENT_PORT`
-- `SKILLS_DIR` (optional: path to external ADK AI Skills directory; bundled skills always load, external skills overlay/override by name)
-- `PROBES_PORT` (default: 8002; standalone health probe server port)
-- `AGENT_LOGGING_DETAIL` (default: `basic`; set to `detailed` for tool arguments/results in logs)
-- `AUDIT_LOGGING_ENABLED` (default: `true`; when false, PII fields are not injected into log records)
-- `TOOL_RESULT_MAX_CHARS` (default: 204800; truncates oversized MCP tool output; 0 to disable)
-- `SKIP_ORDER_VALIDATION` (skip order/entitlement validation in auth; for hybrid OCP deployments)
-
-**Marketplace Handler:**
-- `MARKETPLACE_HOST`, `MARKETPLACE_PORT` (default: `0.0.0.0`, `8001`)
-
-**CORS:**
-- `CORS_ALLOWED_ORIGINS` (comma-separated allowed origins; empty by default)
-
-**Service Control:**
-- `SERVICE_CONTROL_SERVICE_NAME`, `SERVICE_CONTROL_ENABLED`
-
-**Rate Limiting:**
-- `RATE_LIMIT_REDIS_URL`
-
-**Observability:**
-- `LOG_LEVEL`, `LOG_FORMAT`
-- `OTEL_ENABLED`, `OTEL_EXPORTER_TYPE`, `OTEL_SERVICE_NAME`
+Key variables: `GOOGLE_API_KEY` (or Vertex AI), `GEMINI_MODEL` (default: `gemini-2.5-flash`), `DATABASE_URL`, `SESSION_DATABASE_URL`, `MCP_TRANSPORT_MODE`, `MCP_SERVER_URL`, `RED_HAT_SSO_CLIENT_ID`/`SECRET`. Dev-only bypasses: `SKIP_JWT_VALIDATION`, `SKIP_DCR_JWT_VALIDATION`, `SKIP_ORDER_VALIDATION`.
 
 ## CI Pipeline
 
