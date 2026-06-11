@@ -118,32 +118,6 @@ Agent behavioral instructions use ADK's progressive-disclosure Skills system ins
 
 CORS → body size limits → security headers → rate limiting (60 req/min, 1000 req/hour) → JWT auth. See `api/app.py` for ordering and configuration.
 
-## Code Layout
-
-```
-src/lightspeed_agent/
-├── api/app.py              # FastAPI app factory (lifespan, middleware, routes)
-├── api/a2a/                # A2A protocol: routes, AgentCard, usage tracking, plugins
-│                           #   (logging, output size guard, response formatter, session service)
-├── auth/                   # JWT validation middleware + token introspection
-├── config/                 # Pydantic BaseSettings (all env vars, validation)
-├── core/agent.py           # LlmAgent creation with MCP tools + ADK AI Skills
-├── core/gemini_retry.py    # Gemini HTTP retry configuration (exponential backoff + jitter)
-├── core/skills/            # Bundled ADK AI Skill definitions (SKILL.md files)
-├── db/                     # SQLAlchemy ORM (3 models, async engine)
-├── dcr/                    # Dynamic Client Registration service
-├── logging/                # Configurable audit context filter (PII gated by AUDIT_LOGGING_ENABLED)
-├── marketplace/            # Marketplace handler (separate service entry point)
-├── metering/               # Usage record repository + backfill
-├── probes/                 # Standalone health/readiness probe server (port 8002)
-├── ratelimit/              # Redis-backed distributed rate limiter
-├── security/               # Body size limits + security headers middleware
-├── service_control/        # Google Cloud Service Control metering
-├── telemetry/              # OpenTelemetry setup (OTLP, Jaeger, Zipkin)
-├── tools/                  # MCP toolset + JWT forwarding + A2A skills + schema sanitizer
-└── main.py                 # Agent service entry point
-```
-
 ## Configuration
 
 All configuration is via environment variables, managed through Pydantic settings in `config/settings.py`. See `.env.example` for the complete list (30+ vars) and `docs/configuration.md` for detailed documentation.
