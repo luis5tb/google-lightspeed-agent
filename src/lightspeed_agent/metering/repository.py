@@ -7,7 +7,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import delete as sa_delete
-from sqlalchemy import func, select, update
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from lightspeed_agent.db import UsageRecordModel, get_session
@@ -179,14 +179,24 @@ class UsageRepository:
         )
 
     async def delete_by_order_id(self, order_id: str) -> int:
-        """Hard-delete all usage records for an order.
+        """Hard-delete usage records for an order, skipping actively in-flight rows.
+
+        Rows that are currently claimed for reporting (reporting_started_at set
+        but not yet marked reported) are skipped to avoid racing the reporter.
+        Already-reported rows are safe to delete.
 
         Returns:
             Number of rows deleted.
         """
         async with get_session() as session:
             result = await session.execute(
-                sa_delete(UsageRecordModel).where(UsageRecordModel.order_id == order_id)
+                sa_delete(UsageRecordModel).where(
+                    UsageRecordModel.order_id == order_id,
+                    or_(
+                        UsageRecordModel.reporting_started_at.is_(None),
+                        UsageRecordModel.reported.is_(True),
+                    ),
+                )
             )
             count = int(result.rowcount or 0)  # type: ignore[attr-defined]
             if count:

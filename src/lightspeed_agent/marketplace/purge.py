@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
 from lightspeed_agent.dcr.repository import DCRClientRepository, get_dcr_client_repository
@@ -23,9 +24,10 @@ class PurgeResult:
 
     order_id: str
     usage_records_deleted: int = 0
+    dcr_client_deleted: bool = False
     entitlement_deleted: bool = False
     rate_limit_keys_deleted: int = 0
-    errors: list[str] = field(default_factory=list)
+    error_count: int = 0
 
 
 class DataPurgeService:
@@ -80,23 +82,31 @@ class DataPurgeService:
             result.usage_records_deleted = await self._usage_repo.delete_by_order_id(
                 order_id
             )
-        except Exception as e:
-            result.errors.append(f"usage_records: {e}")
+        except Exception:
+            result.error_count += 1
             logger.exception("Failed to delete usage records for order %s", order_id)
 
         # 2. DCR client (local DB safety net)
         try:
-            await self._dcr_repo.delete_by_order_id(order_id)
-        except Exception as e:
-            result.errors.append(f"dcr_client: {e}")
+            result.dcr_client_deleted = await self._dcr_repo.delete_by_order_id(order_id)
+        except Exception:
+            result.error_count += 1
             logger.exception("Failed to delete DCR client for order %s", order_id)
 
-        # 3. Entitlement record
-        try:
-            result.entitlement_deleted = await self._entitlement_repo.delete(order_id)
-        except Exception as e:
-            result.errors.append(f"entitlement: {e}")
-            logger.exception("Failed to delete entitlement for order %s", order_id)
+        # 3. Entitlement record — skip if child record deletion failed,
+        #    so the entitlement remains discoverable for the next purge run.
+        if result.error_count == 0:
+            try:
+                result.entitlement_deleted = await self._entitlement_repo.delete(order_id)
+            except Exception:
+                result.error_count += 1
+                logger.exception("Failed to delete entitlement for order %s", order_id)
+        else:
+            logger.warning(
+                "Skipping entitlement delete for order %s due to %d prior errors",
+                order_id,
+                result.error_count,
+            )
 
         # 4. Rate limit keys (best-effort)
         limiter = self._get_rate_limiter()
@@ -117,27 +127,43 @@ class DataPurgeService:
             result.usage_records_deleted,
             result.entitlement_deleted,
             result.rate_limit_keys_deleted,
-            len(result.errors),
+            result.error_count,
         )
         return result
 
-    async def purge_expired_data(self, retention_days: int) -> list[PurgeResult]:
-        """Bulk purge data for entitlements cancelled/deleted longer than retention_days."""
+    async def purge_expired_data(
+        self, retention_days: int, *, batch_size: int = 100
+    ) -> list[PurgeResult]:
+        """Bulk purge data for entitlements cancelled/deleted longer than retention_days.
+
+        Processes in batches until no more expired entitlements remain.
+        """
         cutoff = datetime.now(UTC) - timedelta(days=retention_days)
-        expired = await self._entitlement_repo.get_expired_cancelled(cutoff)
-        if not expired:
-            return []
-
-        logger.info(
-            "Found %d expired cancelled/deleted entitlements (retention=%d days)",
-            len(expired),
-            retention_days,
-        )
-
         results: list[PurgeResult] = []
-        for entitlement in expired:
-            result = await self.purge_order_data(entitlement.id)
-            results.append(result)
+
+        while True:
+            expired = await self._entitlement_repo.get_expired_cancelled(
+                cutoff, limit=batch_size
+            )
+            if not expired:
+                break
+
+            logger.info(
+                "Purging batch of %d expired cancelled/deleted entitlements "
+                "(retention=%d days)",
+                len(expired),
+                retention_days,
+            )
+
+            batch_results = await asyncio.gather(
+                *(self.purge_order_data(e.id) for e in expired),
+                return_exceptions=True,
+            )
+            for r in batch_results:
+                if isinstance(r, PurgeResult):
+                    results.append(r)
+                else:
+                    logger.exception("Unexpected purge error: %s", r)
 
         return results
 

@@ -6,6 +6,7 @@ Uses PostgreSQL via SQLAlchemy for persistence.
 import logging
 from datetime import datetime
 
+from sqlalchemy import delete as sa_delete
 from sqlalchemy import select
 
 from lightspeed_agent.db import (
@@ -142,35 +143,39 @@ class EntitlementRepository:
         """
         async with get_session() as session:
             result = await session.execute(
-                select(MarketplaceEntitlementModel).where(
+                sa_delete(MarketplaceEntitlementModel).where(
                     MarketplaceEntitlementModel.id == entitlement_id
                 )
             )
-            model = result.scalar_one_or_none()
-            if model:
-                await session.delete(model)
+            deleted = bool(result.rowcount)  # type: ignore[attr-defined]
+            if deleted:
                 logger.info("Deleted entitlement: %s", entitlement_id)
-                return True
-            return False
+            return deleted
 
-    async def get_expired_cancelled(self, cutoff: datetime) -> list[Entitlement]:
+    async def get_expired_cancelled(
+        self, cutoff: datetime, *, limit: int = 100
+    ) -> list[Entitlement]:
         """Get entitlements in CANCELLED/DELETED state older than cutoff.
 
         Args:
             cutoff: Return entitlements with updated_at before this timestamp.
+            limit: Maximum number of entitlements to return per batch.
 
         Returns:
             List of expired cancelled/deleted entitlements.
         """
         async with get_session() as session:
             result = await session.execute(
-                select(MarketplaceEntitlementModel).where(
+                select(MarketplaceEntitlementModel)
+                .where(
                     MarketplaceEntitlementModel.state.in_([
                         EntitlementState.CANCELLED.value,
                         EntitlementState.DELETED.value,
                     ]),
                     MarketplaceEntitlementModel.updated_at < cutoff,
                 )
+                .order_by(MarketplaceEntitlementModel.updated_at)
+                .limit(limit)
             )
             return [self._model_to_entity(m) for m in result.scalars().all()]
 

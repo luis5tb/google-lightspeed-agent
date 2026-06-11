@@ -4,7 +4,7 @@ import asyncio
 import contextlib
 import logging
 from collections.abc import Callable
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from lightspeed_agent.service_control.reporter import UsageReporter, get_usage_reporter
@@ -69,7 +69,7 @@ class ReportingScheduler:
     async def _run_hourly_reports(self) -> None:
         """Run hourly reports in a loop."""
         # Wait until the next hour boundary
-        now = datetime.utcnow()
+        now = datetime.now(UTC)
         next_hour = (now + timedelta(hours=1)).replace(minute=0, second=0, microsecond=0)
         initial_delay = (next_hour - now).total_seconds()
 
@@ -83,7 +83,7 @@ class ReportingScheduler:
         while self._running:
             try:
                 logger.info("Scheduler: Starting hourly usage report")
-                self._last_hourly_run = datetime.utcnow()
+                self._last_hourly_run = datetime.now(UTC)
                 self._hourly_run_count += 1
 
                 results = await self._reporter.run_hourly_cycle()
@@ -118,7 +118,7 @@ class ReportingScheduler:
                         "Scheduler: Retrying %d failed reports",
                         failed_count,
                     )
-                    self._last_retry_run = datetime.utcnow()
+                    self._last_retry_run = datetime.now(UTC)
                     self._retry_run_count += 1
 
                     results = await self._reporter.retry_failed_reports()
@@ -150,7 +150,7 @@ class ReportingScheduler:
         while self._running:
             try:
                 logger.info("Scheduler: Starting data purge run")
-                self._last_purge_run = datetime.utcnow()
+                self._last_purge_run = datetime.now(UTC)
                 self._purge_run_count += 1
 
                 purge_service = get_data_purge_service()
@@ -158,7 +158,7 @@ class ReportingScheduler:
 
                 total_usage = sum(r.usage_records_deleted for r in results)
                 total_entitlements = sum(1 for r in results if r.entitlement_deleted)
-                total_errors = sum(len(r.errors) for r in results)
+                total_errors = sum(r.error_count for r in results)
 
                 logger.info(
                     "Scheduler: Data purge complete. "

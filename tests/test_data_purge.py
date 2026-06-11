@@ -190,8 +190,8 @@ class TestUsageRepositoryDeleteByOrderId:
         assert await _count_usage_records("order-other") == 1
 
     @pytest.mark.asyncio
-    async def test_delete_in_flight_records(self, db_session):
-        """Delete records that are in-flight (reporting_started_at set) should still work."""
+    async def test_skips_in_flight_records(self, db_session):
+        """In-flight records (reporting_started_at set) are skipped to avoid racing the reporter."""
         repo = UsageRepository()
 
         await _create_usage_record(
@@ -200,8 +200,45 @@ class TestUsageRepositoryDeleteByOrderId:
         )
 
         deleted = await repo.delete_by_order_id("order-inflight")
+        assert deleted == 0
+        assert await _count_usage_records("order-inflight") == 1
+
+    @pytest.mark.asyncio
+    async def test_deletes_already_reported_records(self, db_session):
+        """Already-reported records (reported=True, reporting_started_at set) are safe to delete."""
+        repo = UsageRepository()
+
+        await _create_usage_record(
+            "order-reported",
+            reported=True,
+            reporting_started_at=datetime.now(UTC) - timedelta(minutes=30),
+        )
+
+        deleted = await repo.delete_by_order_id("order-reported")
         assert deleted == 1
-        assert await _count_usage_records("order-inflight") == 0
+        assert await _count_usage_records("order-reported") == 0
+
+    @pytest.mark.asyncio
+    async def test_deletes_non_inflight_leaves_inflight(self, db_session):
+        """Only non-in-flight records are deleted; in-flight records survive."""
+        repo = UsageRepository()
+
+        base = datetime.now(UTC).replace(minute=0, second=0, microsecond=0)
+        await _create_usage_record(
+            "order-mixed",
+            period_start=base - timedelta(hours=3),
+            period_end=base - timedelta(hours=2),
+        )
+        await _create_usage_record(
+            "order-mixed",
+            reporting_started_at=datetime.now(UTC) - timedelta(minutes=5),
+            period_start=base - timedelta(hours=2),
+            period_end=base - timedelta(hours=1),
+        )
+
+        deleted = await repo.delete_by_order_id("order-mixed")
+        assert deleted == 1
+        assert await _count_usage_records("order-mixed") == 1
 
 
 # ===========================================================================
@@ -554,7 +591,6 @@ class TestProcurementServicePurgeIntegration:
         )
         from lightspeed_agent.marketplace.service import ProcurementService
 
-        # Set up an entitlement to be cancelled
         repo = EntitlementRepository()
         await _create_entitlement("order-cancel-int", state="active")
 
@@ -563,8 +599,12 @@ class TestProcurementServicePurgeIntegration:
 
         service = ProcurementService(entitlement_repo=repo, dcr_service=mock_dcr)
 
-        mock_purge = AsyncMock()
-        with patch.object(service, "_purge_service", new=mock_purge, create=True):
+        mock_purge_service = AsyncMock()
+        mock_purge_service.purge_order_usage = AsyncMock(return_value=0)
+        with patch(
+            "lightspeed_agent.marketplace.purge.get_data_purge_service",
+            return_value=mock_purge_service,
+        ):
             event = ProcurementEvent(
                 eventId="evt-1",
                 eventType=ProcurementEventType.ENTITLEMENT_CANCELLED,
@@ -577,6 +617,9 @@ class TestProcurementServicePurgeIntegration:
         ent = await repo.get("order-cancel-int")
         assert ent is not None
         assert ent.state == EntitlementState.CANCELLED
+
+        # Verify purge was actually called
+        mock_purge_service.purge_order_usage.assert_awaited_once_with("order-cancel-int")
 
     @pytest.mark.asyncio
     async def test_deleted_handler_triggers_purge(self, db_session):
@@ -596,8 +639,12 @@ class TestProcurementServicePurgeIntegration:
 
         service = ProcurementService(entitlement_repo=repo, dcr_service=mock_dcr)
 
-        mock_purge = AsyncMock()
-        with patch.object(service, "_purge_service", new=mock_purge, create=True):
+        mock_purge_service = AsyncMock()
+        mock_purge_service.purge_order_usage = AsyncMock(return_value=0)
+        with patch(
+            "lightspeed_agent.marketplace.purge.get_data_purge_service",
+            return_value=mock_purge_service,
+        ):
             event = ProcurementEvent(
                 eventId="evt-2",
                 eventType=ProcurementEventType.ENTITLEMENT_DELETED,
@@ -610,6 +657,9 @@ class TestProcurementServicePurgeIntegration:
         ent = await repo.get("order-delete-int")
         assert ent is not None
         assert ent.state == EntitlementState.DELETED
+
+        # Verify purge was actually called
+        mock_purge_service.purge_order_usage.assert_awaited_once_with("order-delete-int")
 
 
 # ===========================================================================
@@ -628,7 +678,7 @@ class TestDataPurgeSettings:
     def test_default_data_purge_enabled(self, test_settings):
         """Verify default value for data_purge_enabled."""
         assert hasattr(test_settings, "data_purge_enabled")
-        assert test_settings.data_purge_enabled is True
+        assert test_settings.data_purge_enabled is False
 
     def test_default_data_purge_interval_hours(self, test_settings):
         """Verify default value for data_purge_interval_hours."""
@@ -643,12 +693,51 @@ class TestDataPurgeSettings:
             google_api_key="test-key",
             database_url="sqlite+aiosqlite:///:memory:",
             data_retention_days=90,
-            data_purge_enabled=False,
+            data_purge_enabled=True,
             data_purge_interval_hours=12,
         )
         assert settings.data_retention_days == 90
-        assert settings.data_purge_enabled is False
+        assert settings.data_purge_enabled is True
         assert settings.data_purge_interval_hours == 12
+
+    def test_data_retention_days_rejects_zero(self):
+        """data_retention_days=0 must be rejected (ge=1 constraint)."""
+        from pydantic import ValidationError
+
+        from lightspeed_agent.config import Settings
+
+        with pytest.raises(ValidationError):
+            Settings(
+                google_api_key="test-key",
+                database_url="sqlite+aiosqlite:///:memory:",
+                data_retention_days=0,
+            )
+
+    def test_data_retention_days_rejects_negative(self):
+        """Negative data_retention_days must be rejected."""
+        from pydantic import ValidationError
+
+        from lightspeed_agent.config import Settings
+
+        with pytest.raises(ValidationError):
+            Settings(
+                google_api_key="test-key",
+                database_url="sqlite+aiosqlite:///:memory:",
+                data_retention_days=-1,
+            )
+
+    def test_data_purge_interval_hours_rejects_zero(self):
+        """data_purge_interval_hours=0 must be rejected (ge=1 constraint)."""
+        from pydantic import ValidationError
+
+        from lightspeed_agent.config import Settings
+
+        with pytest.raises(ValidationError):
+            Settings(
+                google_api_key="test-key",
+                database_url="sqlite+aiosqlite:///:memory:",
+                data_purge_interval_hours=0,
+            )
 
 
 # ===========================================================================
