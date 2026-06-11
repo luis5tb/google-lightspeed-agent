@@ -151,31 +151,9 @@ Three deployment targets: Cloud Run (`deploy/cloudrun/`), OpenShift via Helm (`d
 
 Creates OAuth tenant clients in Red Hat SSO via the GMA API (`dcr/gma_client.py`). Authenticates with `GMA_CLIENT_ID`/`GMA_CLIENT_SECRET` using `scope=api.iam.clients.gma`. Client secrets are Fernet-encrypted at rest (`DCR_ENCRYPTION_KEY`).
 
-### Entitlement Provisioning Lifecycle
+### Entitlement & Usage
 
-Google Cloud Marketplace sends Pub/Sub events to the `/pubsub` endpoint as orders progress through their lifecycle. The `ProcurementService` (`marketplace/service.py`) processes each event type:
-
-1. **`ENTITLEMENT_CREATION_REQUESTED`** — Customer initiates an order. The handler:
-   - Creates a local entitlement record in `PENDING_APPROVAL` state
-   - Resolves the Procurement Account ID (from the event payload, or by fetching the entitlement from the Procurement API) and persists it to the entitlement record
-   - Approves the account via the Procurement API (idempotent — required before entitlement approval)
-   - Auto-approves the entitlement via the Procurement API
-
-2. **`ENTITLEMENT_ACTIVE`** — Google confirms the entitlement is active. The handler:
-   - Resolves and persists the account ID (if not already set)
-   - Updates the entitlement state to `ACTIVE` with product metadata
-
-3. **DCR request arrives** — Gemini Enterprise sends a direct DCR request with a signed JWT containing `account_id` (sub) and `order_id` (google.order). The DCR service validates both against the Procurement API and local DB, then creates OAuth credentials.
-
-4. **`ENTITLEMENT_PLAN_CHANGE_REQUESTED`** → auto-approved via Procurement API. **`ENTITLEMENT_PLAN_CHANGED`** → plan updated in DB.
-
-5. **`ENTITLEMENT_CANCELLED`** / **`ENTITLEMENT_DELETED`** → Entitlement state updated, OAuth client deleted from Red Hat SSO (if GMA-created) and local DB.
-
-All Procurement API calls are idempotent (400/409 treated as success). Failures on 5xx or network errors propagate so Pub/Sub retries the event. Account validation for DCR queries the Procurement API directly (source of truth), not the local DB.
-
-### Usage Metering
-
-`api/a2a/usage_plugin.py` hooks into ADK to track tokens/requests per LLM call. Hourly aggregates are stored in `UsageRecordModel` and async-reported to Google Cloud Service Control (`service_control/reporter.py`). Includes backfill for offline periods.
+Orders flow through create → active → plan-change → cancel states via Pub/Sub events. See `marketplace/service.py` for event handlers and `docs/marketplace.md` for the full lifecycle. Usage metering (`api/a2a/usage_plugin.py`) tracks tokens per LLM call, with hourly reporting to Google Service Control.
 
 ## Code Layout
 
