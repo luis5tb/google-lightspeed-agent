@@ -74,6 +74,12 @@ make lint && make test
 
 If you modified `pyproject.toml`, also run `make lock` and commit the lock files together.
 
+When your changes affect architecture, configuration, APIs, or behavior, update the relevant docs in the same PR:
+- `docs/` — detailed reference documentation (architecture, authentication, configuration, marketplace, MCP integration)
+- `deploy/` — deployment READMEs and scripts (Cloud Run, OpenShift, Podman) and `cloudbuild.yaml` when changing deployment-related config, env vars, or infrastructure
+- `CLAUDE.md` — only if the change affects common commands, gotchas, or key architectural concepts described here
+- `README.md` — only if the change affects the project overview or quickstart
+
 ## Common Gotchas
 
 - **SQLite vs PostgreSQL**: `ARRAY(String)` columns use a JSON variant for SQLite (see `db/models.py:StringList`). If adding array-type columns, use `StringList` — raw `ARRAY` will break tests.
