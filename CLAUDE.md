@@ -135,13 +135,9 @@ Agent behavioral instructions use ADK's progressive-disclosure Skills system ins
 - **External skills** (`SKILLS_DIR` env var): deployment-specific skills loaded alongside bundled ones; same-name skills override bundled defaults
 - A2A AgentCard skills (`tools/a2a_skills.py`) are a separate concept — they describe agent capabilities for the A2A protocol, not LLM behavioral instructions
 
-### Key Middleware Stack (request order, outermost first)
-1. CORS
-2. Request body size limit (`security/body_limit.py`) — 10 MB agent, 1 MB marketplace handler
-3. Security headers (`security/middleware.py`) — HSTS, CSP, X-Content-Type-Options,
-   X-Frame-Options, Referrer-Policy, Permissions-Policy, Cache-Control
-4. Redis rate limiting (`ratelimit/middleware.py`) — 60 req/min, 1000 req/hour
-5. JWT authentication (`auth/middleware.py`)
+### Middleware Stack
+
+CORS → body size limits → security headers → rate limiting (60 req/min, 1000 req/hour) → JWT auth. See `api/app.py` for ordering and configuration.
 
 ### Health Probe Server
 
