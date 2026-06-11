@@ -6,6 +6,7 @@ import logging
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from sqlalchemy import delete as sa_delete
 from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
@@ -176,6 +177,21 @@ class UsageRepository:
                 reported=False,
             )
         )
+
+    async def delete_by_order_id(self, order_id: str) -> int:
+        """Hard-delete all usage records for an order.
+
+        Returns:
+            Number of rows deleted.
+        """
+        async with get_session() as session:
+            result = await session.execute(
+                sa_delete(UsageRecordModel).where(UsageRecordModel.order_id == order_id)
+            )
+            count = int(result.rowcount or 0)  # type: ignore[attr-defined]
+            if count:
+                logger.info("Deleted %d usage records for order_id=%s", count, order_id)
+            return count
 
     async def claim_unreported_rows_for_reporting(
         self,

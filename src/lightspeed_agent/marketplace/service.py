@@ -384,8 +384,9 @@ class ProcurementService:
     async def _handle_entitlement_cancelled(self, event: ProcurementEvent) -> None:
         """Handle ENTITLEMENT_CANCELLED event.
 
-        Updates entitlement state and deletes the associated OAuth client
-        from Red Hat SSO (if created via GMA) and from the local DB.
+        Updates entitlement state, deletes the associated OAuth client
+        from Red Hat SSO (if created via GMA) and from the local DB,
+        and purges usage records immediately.
         """
         if not event.entitlement:
             return
@@ -398,12 +399,14 @@ class ProcurementService:
             logger.info("Entitlement cancelled: %s", event.entitlement.id)
 
         await self._delete_oauth_client(event.entitlement.id)
+        await self._purge_usage_records(event.entitlement.id)
 
     async def _handle_entitlement_deleted(self, event: ProcurementEvent) -> None:
         """Handle ENTITLEMENT_DELETED event.
 
-        Updates entitlement state and ensures the associated OAuth client
-        is cleaned up (safety net if not already deleted on cancellation).
+        Updates entitlement state, ensures the associated OAuth client
+        is cleaned up (safety net if not already deleted on cancellation),
+        and purges usage records immediately.
         """
         if not event.entitlement:
             return
@@ -415,6 +418,7 @@ class ProcurementService:
             logger.info("Entitlement deleted: %s", event.entitlement.id)
 
         await self._delete_oauth_client(event.entitlement.id)
+        await self._purge_usage_records(event.entitlement.id)
 
     async def _delete_oauth_client(self, order_id: str) -> None:
         """Delete the OAuth client associated with a marketplace order.
@@ -449,6 +453,25 @@ class ProcurementService:
         except Exception:
             logger.exception("Failed to delete OAuth client for order %s", order_id)
             raise
+
+    async def _purge_usage_records(self, order_id: str) -> None:
+        """Purge usage records for a cancelled/deleted order.
+
+        Best-effort: failures are logged but do not propagate, since the
+        retention scheduler will clean up any remaining data later.
+
+        Args:
+            order_id: The marketplace order/entitlement ID.
+        """
+        try:
+            from lightspeed_agent.marketplace.purge import get_data_purge_service
+
+            purge_service = get_data_purge_service()
+            count = await purge_service.purge_order_usage(order_id)
+            if count:
+                logger.info("Purged %d usage records for order %s", count, order_id)
+        except Exception:
+            logger.exception("Failed to purge usage records for order %s", order_id)
 
     async def _handle_offer_ended(self, event: ProcurementEvent) -> None:
         """Handle ENTITLEMENT_OFFER_ENDED event."""
