@@ -175,6 +175,24 @@ async def handle_procurement_event(message: dict):
         )
 ```
 
+## Data Retention and Purge
+
+When an entitlement is cancelled or deleted, data is cleaned up in two stages:
+
+1. **Immediate**: Usage records for the order are purged as soon as the cancel/delete Pub/Sub event is processed (best-effort — records actively being reported are skipped and cleaned up by the retention scheduler).
+
+2. **Periodic**: After `DATA_RETENTION_DAYS` (default 90), the entitlement record, DCR client, and any remaining usage records are hard-deleted by a background scheduler task.
+
+**Configuration:**
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DATA_PURGE_ENABLED` | `false` | Must be explicitly enabled |
+| `DATA_RETENTION_DAYS` | `90` | Minimum 1 day |
+| `DATA_PURGE_INTERVAL_HOURS` | `24` | How often the purge scheduler runs |
+
+The purge scheduler processes up to 100 expired entitlements per run. Rate-limit keys in Redis are cleaned on a best-effort basis (they auto-expire within 1 hour regardless).
+
 ## Usage Metering
 
 ### Metrics Tracked

@@ -137,6 +137,28 @@ return {1, "ok", min_remaining_minute, min_remaining_hour, 0, 0}
         """Close Redis resources."""
         await self._redis.aclose()
 
+    async def delete_keys_for_order(self, order_id: str) -> int:
+        """Delete all rate limit keys for an order.
+
+        Best-effort: keys auto-expire within 1 hour via PEXPIRE, so failure
+        here only means a brief delay before natural expiry.
+
+        Returns:
+            Number of keys deleted.
+        """
+        keys = [
+            f"{self._key_prefix}:order:{order_id}:m",
+            f"{self._key_prefix}:order:{order_id}:h",
+        ]
+        try:
+            count = await self._redis.delete(*keys)
+            if count:
+                logger.info("Deleted %d rate limit keys for order_id=%s", count, order_id)
+            return int(count)
+        except RedisError:
+            logger.warning("Failed to delete rate limit keys for order_id=%s", order_id)
+            return 0
+
     async def is_allowed(
         self,
         *,

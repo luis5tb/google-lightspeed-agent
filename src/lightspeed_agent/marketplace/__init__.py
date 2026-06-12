@@ -20,6 +20,11 @@ from lightspeed_agent.marketplace.models import (
     ProcurementEvent,
     ProcurementEventType,
 )
+from lightspeed_agent.marketplace.purge import (
+    DataPurgeService,
+    PurgeResult,
+    get_data_purge_service,
+)
 from lightspeed_agent.marketplace.repository import (
     EntitlementRepository,
     get_entitlement_repository,
@@ -35,6 +40,10 @@ __all__ = [
     "EntitlementState",
     "ProcurementEvent",
     "ProcurementEventType",
+    # Purge
+    "DataPurgeService",
+    "PurgeResult",
+    "get_data_purge_service",
     # Repository
     "EntitlementRepository",
     "get_entitlement_repository",

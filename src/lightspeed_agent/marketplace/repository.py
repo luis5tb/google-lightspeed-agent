@@ -4,7 +4,9 @@ Uses PostgreSQL via SQLAlchemy for persistence.
 """
 
 import logging
+from datetime import datetime
 
+from sqlalchemy import delete as sa_delete
 from sqlalchemy import select
 
 from lightspeed_agent.db import (
@@ -129,6 +131,53 @@ class EntitlementRepository:
                 entitlement.state,
             )
             return self._model_to_entity(model)
+
+    async def delete(self, entitlement_id: str) -> bool:
+        """Hard-delete an entitlement record.
+
+        Args:
+            entitlement_id: The Entitlement/Order ID.
+
+        Returns:
+            True if a record was deleted, False if not found.
+        """
+        async with get_session() as session:
+            result = await session.execute(
+                sa_delete(MarketplaceEntitlementModel).where(
+                    MarketplaceEntitlementModel.id == entitlement_id
+                )
+            )
+            deleted = bool(result.rowcount)  # type: ignore[attr-defined]
+            if deleted:
+                logger.info("Deleted entitlement: %s", entitlement_id)
+            return deleted
+
+    async def get_expired_cancelled(
+        self, cutoff: datetime, *, limit: int = 100
+    ) -> list[Entitlement]:
+        """Get entitlements in CANCELLED/DELETED state older than cutoff.
+
+        Args:
+            cutoff: Return entitlements with updated_at before this timestamp.
+            limit: Maximum number of entitlements to return per batch.
+
+        Returns:
+            List of expired cancelled/deleted entitlements.
+        """
+        async with get_session() as session:
+            result = await session.execute(
+                select(MarketplaceEntitlementModel)
+                .where(
+                    MarketplaceEntitlementModel.state.in_([
+                        EntitlementState.CANCELLED.value,
+                        EntitlementState.DELETED.value,
+                    ]),
+                    MarketplaceEntitlementModel.updated_at < cutoff,
+                )
+                .order_by(MarketplaceEntitlementModel.updated_at)
+                .limit(limit)
+            )
+            return [self._model_to_entity(m) for m in result.scalars().all()]
 
     async def is_valid(self, entitlement_id: str) -> bool:
         """Check if an entitlement is valid (exists and active).

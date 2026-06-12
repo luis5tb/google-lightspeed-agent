@@ -386,6 +386,8 @@ class ProcurementService:
 
         Updates entitlement state and deletes the associated OAuth client
         from Red Hat SSO (if created via GMA) and from the local DB.
+        Usage data is retained until the periodic retention scheduler
+        purges it after DATA_RETENTION_DAYS.
         """
         if not event.entitlement:
             return
@@ -404,6 +406,8 @@ class ProcurementService:
 
         Updates entitlement state and ensures the associated OAuth client
         is cleaned up (safety net if not already deleted on cancellation).
+        Usage data is retained until the periodic retention scheduler
+        purges it after DATA_RETENTION_DAYS.
         """
         if not event.entitlement:
             return

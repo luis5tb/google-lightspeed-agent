@@ -6,7 +6,8 @@ import logging
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import func, select, update
+from sqlalchemy import delete as sa_delete
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from lightspeed_agent.db import UsageRecordModel, get_session
@@ -176,6 +177,32 @@ class UsageRepository:
                 reported=False,
             )
         )
+
+    async def delete_by_order_id(self, order_id: str) -> int:
+        """Hard-delete usage records for an order, skipping actively in-flight rows.
+
+        Rows that are currently claimed for reporting (reporting_started_at set
+        but not yet marked reported) are skipped to avoid racing the reporter.
+        Already-reported rows are safe to delete.
+
+        Returns:
+            Number of rows deleted.
+        """
+        async with get_session() as session:
+            not_in_flight = or_(
+                UsageRecordModel.reporting_started_at.is_(None),
+                UsageRecordModel.reported.is_(True),
+            )
+            result = await session.execute(
+                sa_delete(UsageRecordModel).where(
+                    UsageRecordModel.order_id == order_id,
+                    not_in_flight,
+                )
+            )
+            count = int(result.rowcount or 0)  # type: ignore[attr-defined]
+            if count:
+                logger.info("Deleted %d usage records for order_id=%s", count, order_id)
+            return count
 
     async def claim_unreported_rows_for_reporting(
         self,
