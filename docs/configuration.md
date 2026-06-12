@@ -353,6 +353,18 @@ Usage tracking is built into the agent via the ADK plugin system. No configurati
 
 See [Usage Tracking and Metering](metering.md) for details on the plugin system and how to extend it.
 
+### Data Purge
+
+Periodic hard-deletion of data for cancelled/deleted entitlements. Disabled by default — must be explicitly enabled after reviewing retention policies.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DATA_PURGE_ENABLED` | `false` | Enable automated periodic purging of expired cancelled/deleted entitlements |
+| `DATA_RETENTION_DAYS` | `90` | Days to retain cancelled/deleted entitlement data before purge (minimum 1) |
+| `DATA_PURGE_INTERVAL_HOURS` | `24` | Hours between automated purge runs |
+
+When an entitlement is cancelled or deleted, all associated data (usage records, entitlement record, DCR client, and rate limit keys) is retained for `DATA_RETENTION_DAYS` and then hard-deleted by the periodic purge scheduler. See [Marketplace > Data Retention and Purge](marketplace.md#data-retention-and-purge) for details.
+
 ### Logging
 
 | Variable | Default | Description |
