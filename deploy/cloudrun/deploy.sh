@@ -649,8 +649,13 @@ setup_service_lb() {
 # Get and display service URLs based on what was deployed
 show_service_info() {
     local service_name="$1"
-    local service_url
 
+    if [[ "$DRY_RUN" == "true" ]]; then
+        log_info "$service_name URL: [dry-run — not available]"
+        return
+    fi
+
+    local service_url
     service_url=$(gcloud run services describe "$service_name" \
         --region="$REGION" \
         --project="$PROJECT_ID" \
@@ -668,6 +673,11 @@ show_service_info() {
 # so the AgentCard advertises the correct externally-reachable URLs.
 # When per-service LBs are enabled, uses GCLB domains instead of Cloud Run URLs.
 update_agentcard_urls() {
+    if [[ "$DRY_RUN" == "true" ]]; then
+        log_info "Dry-run: skipping AgentCard URL updates"
+        return
+    fi
+
     local service_url handler_url env_vars
     service_url=$(gcloud run services describe "$SERVICE_NAME" \
         --region="$REGION" --project="$PROJECT_ID" \

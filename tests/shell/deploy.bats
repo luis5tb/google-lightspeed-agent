@@ -200,3 +200,56 @@ teardown() {
     # Verify ingress update was called
     grep -q "internal-and-cloud-load-balancing" "$GCLOUD_LOG_FILE"
 }
+
+# ===========================================================================
+# Dry-run with LB and pubsub
+# ===========================================================================
+
+@test "dry-run with setup_service_lb prints NEG, backend, and forwarding rule creates" {
+    export ENABLE_LB_AGENT="true"
+    export AGENT_DOMAIN_NAME="agent.example.com"
+    source_deploy --dry-run
+
+    run setup_service_lb "agent" "lightspeed-agent" "agent.example.com" "false" "1"
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == *"[DRY-RUN] gcloud compute network-endpoint-groups create"* ]]
+    [[ "$output" == *"[DRY-RUN] gcloud compute backend-services create"* ]]
+    [[ "$output" == *"[DRY-RUN] gcloud compute forwarding-rules create"* ]]
+}
+
+@test "dry-run with Cloud Armor prints WAF rule creates" {
+    export ENABLE_LB_AGENT="true"
+    export AGENT_DOMAIN_NAME="agent.example.com"
+    export ENABLE_CLOUD_ARMOR_AGENT="true"
+    source_deploy --dry-run
+
+    run setup_service_lb "agent" "lightspeed-agent" "agent.example.com" "true" "1"
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == *"[DRY-RUN] gcloud compute security-policies create"* ]]
+    [[ "$output" == *"[DRY-RUN] gcloud compute security-policies rules create"* ]]
+}
+
+@test "dry-run configure_pubsub_push returns early when handler URL unavailable" {
+    source_deploy --dry-run
+
+    run configure_pubsub_push
+    [[ "$status" -eq 0 ]]
+    # In dry-run, gcloud describe returns 1, so handler_url is empty → early return
+    [[ "$output" == *"Could not retrieve"* || "$output" == *"Skipping"* ]]
+}
+
+@test "show_service_info skips gcloud in dry-run mode" {
+    source_deploy --dry-run
+
+    run show_service_info "lightspeed-agent"
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == *"dry-run"* ]]
+}
+
+@test "update_agentcard_urls skips in dry-run mode" {
+    source_deploy --dry-run
+
+    run update_agentcard_urls
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == *"Dry-run: skipping"* ]]
+}
