@@ -1,7 +1,7 @@
 # Red Hat Lightspeed Agent for Google Cloud - Makefile
 # Common development and deployment commands
 
-.PHONY: help build build-agent build-marketplace run stop logs logs-mcp clean test lint dev check-env lock lock-agent lock-handler lock-dev lock-check audit
+.PHONY: help build build-agent build-marketplace run stop logs logs-mcp clean test test-shell lint dev check-env lock lock-agent lock-handler lock-dev lock-check audit
 
 # Default target
 help:
@@ -10,6 +10,7 @@ help:
 	@echo "Development:"
 	@echo "  make dev          - Run agent in development mode (no container)"
 	@echo "  make test         - Run tests"
+	@echo "  make test-shell   - Run shell tests (bats)"
 	@echo "  make lint         - Run linter and type checker"
 	@echo ""
 	@echo "Dependency Management:"
@@ -50,6 +51,10 @@ dev:
 test:
 	@echo "Running tests..."
 	source .venv/bin/activate && python -m pytest tests/ -v
+
+test-shell:
+	@echo "Running shell tests..."
+	bats tests/shell/
 
 lint:
 	@echo "Running linter..."
