@@ -86,6 +86,25 @@ async def lifespan(app: A2AFastAPI) -> AsyncIterator[None]:
     # Startup: Validate MCP URL security (agent-specific, not in shared Settings)
     _check_mcp_url_security(settings)
 
+    # Startup: Start the probe server FIRST so the Cloud Run startup probe
+    # gets a response on /health while the rest of initialization proceeds.
+    async def _check_database() -> None:
+        from lightspeed_agent.db import get_engine
+
+        engine = get_engine()
+        async with engine.begin() as conn:
+            await conn.exec_driver_sql("SELECT 1")
+
+    async def _check_redis() -> None:
+        await get_redis_rate_limiter().verify_connection()
+
+    logger.info("Starting probe server on port %d", settings.agent_probe_port)
+    await start_probe_server(
+        settings.agent_probe_port,
+        settings.agent_name,
+        readiness_checks={"database": _check_database, "redis": _check_redis},
+    )
+
     # Startup: Verify Redis connectivity for rate limiting
     try:
         await get_redis_rate_limiter().verify_connection()
@@ -131,24 +150,6 @@ async def lifespan(app: A2AFastAPI) -> AsyncIterator[None]:
             )
         except Exception as e:
             logger.error("Failed to start reporting scheduler: %s", e)
-
-    # Startup: Start the probe server on a separate port
-    async def _check_database() -> None:
-        from lightspeed_agent.db import get_engine
-
-        engine = get_engine()
-        async with engine.begin() as conn:
-            await conn.exec_driver_sql("SELECT 1")
-
-    async def _check_redis() -> None:
-        await get_redis_rate_limiter().verify_connection()
-
-    logger.info("Starting probe server on port %d", settings.agent_probe_port)
-    await start_probe_server(
-        settings.agent_probe_port,
-        settings.agent_name,
-        readiness_checks={"database": _check_database, "redis": _check_redis},
-    )
 
     yield
 
