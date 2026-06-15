@@ -92,19 +92,19 @@ lock-check:
 	@cp requirements-agent.txt /tmp/requirements-agent-check.txt
 	@uv pip compile --generate-hashes --python-version=3.12 --python-platform=linux \
 		--extra agent --output-file=/tmp/requirements-agent-check.txt pyproject.toml
-	@diff <(tail -n +3 requirements-agent.txt) <(tail -n +3 /tmp/requirements-agent-check.txt) || \
+	@diff -u <(tail -n +3 requirements-agent.txt) <(tail -n +3 /tmp/requirements-agent-check.txt) || \
 		(echo "ERROR: requirements-agent.txt is out of sync. Run 'make lock' to update." && rm -f /tmp/requirements-agent-check.txt && exit 1)
 	@rm -f /tmp/requirements-agent-check.txt
 	@cp requirements-handler.txt /tmp/requirements-handler-check.txt
 	@uv pip compile --generate-hashes --python-version=3.12 --python-platform=linux \
 		--output-file=/tmp/requirements-handler-check.txt pyproject.toml
-	@diff <(tail -n +3 requirements-handler.txt) <(tail -n +3 /tmp/requirements-handler-check.txt) || \
+	@diff -u <(tail -n +3 requirements-handler.txt) <(tail -n +3 /tmp/requirements-handler-check.txt) || \
 		(echo "ERROR: requirements-handler.txt is out of sync. Run 'make lock' to update." && rm -f /tmp/requirements-handler-check.txt && exit 1)
 	@rm -f /tmp/requirements-handler-check.txt
 	@cp requirements-dev.txt /tmp/requirements-dev-check.txt
 	@uv pip compile --generate-hashes --python-version=3.12 --python-platform=linux \
 		--extra dev --output-file=/tmp/requirements-dev-check.txt pyproject.toml
-	@diff <(tail -n +3 requirements-dev.txt) <(tail -n +3 /tmp/requirements-dev-check.txt) || \
+	@diff -u <(tail -n +3 requirements-dev.txt) <(tail -n +3 /tmp/requirements-dev-check.txt) || \
 		(echo "ERROR: requirements-dev.txt is out of sync. Run 'make lock' to update." && rm -f /tmp/requirements-dev-check.txt && exit 1)
 	@rm -f /tmp/requirements-dev-check.txt
 	@echo "✓ Lock files are in sync"
