@@ -432,7 +432,7 @@ configure_pubsub_push() {
 setup_service_lb() {
     local service_label="$1"
     local cloud_run_service="$2"
-    local domain_name="$3"
+    local _domain_name="$3"  # reserved for future SSL cert creation
     local cloud_armor_enabled="$4"
     local waf_sensitivity="${5:-1}"
 
@@ -710,6 +710,7 @@ update_agentcard_urls() {
 
 # Allow sourcing for testing — skip main execution
 if [[ "${BASH_SOURCE[0]}" != "$0" ]]; then
+    # shellcheck disable=SC2317
     return 0 2>/dev/null || true
 fi
 
