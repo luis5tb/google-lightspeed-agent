@@ -232,6 +232,15 @@ footer {
   background: var(--rh-red-dark);
 }
 
+.btn-secondary {
+  background: var(--rh-gray-200);
+  color: var(--rh-gray-800);
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background: var(--rh-gray-400);
+}
+
 /* Order mode toggle */
 .order-mode-toggle {
   display: flex;
@@ -416,7 +425,8 @@ input[readonly] {
 /* Conversation controls */
 .conversation-controls {
   display: flex;
-  justify-content: flex-end;
+  justify-content: space-between;
+  align-items: center;
   margin-bottom: 0.5rem;
 }
 
