@@ -124,11 +124,16 @@ data:
   LOG_FORMAT: {{ .Values.logging.format | quote }}
 
   # OpenTelemetry
+  {{- if .Values.kagenti.enabled }}
+  OTEL_ENABLED: "true"
+  OTEL_EXPORTER_OTLP_HTTP_ENDPOINT: {{ printf "http://%s" .Values.kagenti.traceEndpoint | quote }}
+  {{- else }}
   OTEL_ENABLED: {{ .Values.otel.enabled | quote }}
+  OTEL_EXPORTER_OTLP_HTTP_ENDPOINT: {{ .Values.otel.otlpHttpEndpoint | quote }}
+  {{- end }}
   OTEL_SERVICE_NAME: {{ .Values.otel.serviceName | quote }}
   OTEL_EXPORTER_TYPE: {{ .Values.otel.exporterType | quote }}
   OTEL_EXPORTER_OTLP_ENDPOINT: {{ .Values.otel.otlpEndpoint | quote }}
-  OTEL_EXPORTER_OTLP_HTTP_ENDPOINT: {{ .Values.otel.otlpHttpEndpoint | quote }}
   OTEL_TRACES_SAMPLER: {{ .Values.otel.tracesSampler | quote }}
   OTEL_TRACES_SAMPLER_ARG: {{ .Values.otel.tracesSamplerArg | quote }}
   # OpenTelemetry - Metrics

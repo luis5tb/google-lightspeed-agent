@@ -124,6 +124,24 @@ mcpGateway:
   toolPrefix: "redhat_lightspeed_"
 
 # ---------------------------------------------------------------------------
+# Kagenti — Agent Identity & Monitoring (Red Hat AI)
+# ---------------------------------------------------------------------------
+# When enabled, the agent Deployment is labeled for Kagenti discovery and
+# an AgentRuntime CR is created to enroll the agent in the Kagenti platform.
+# The Kagenti operator will inject identity sidecars (SPIFFE, Keycloak, Envoy)
+# and auto-create an AgentCard for A2A discovery.
+kagenti:
+  enabled: false
+  # SPIFFE trust domain for agent identity
+  trustDomain: "example.com"
+  # Agent framework identifier (informational label)
+  framework: "google-adk"
+  # OpenTelemetry trace endpoint (Kagenti's OTEL collector)
+  traceEndpoint: "otel-collector.kagenti-system.svc.cluster.local:4318"
+  traceProtocol: "http"
+  traceSamplingRate: "1.0"
+
+# ---------------------------------------------------------------------------
 # LLM Provider (alternative models via LiteLLM)
 # ---------------------------------------------------------------------------
 llm:
