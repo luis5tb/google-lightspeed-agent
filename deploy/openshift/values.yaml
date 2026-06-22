@@ -61,7 +61,7 @@ agent:
   ingressNamespace: openshift-ingress
 
 # ---------------------------------------------------------------------------
-# Red Hat Lightspeed MCP server (runs as sidecar in the agent pod)
+# Red Hat Lightspeed MCP server (sidecar or standalone, see mcpGateway)
 # ---------------------------------------------------------------------------
 mcp:
   image:
