@@ -125,11 +125,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Python and pip-audit
+      - name: Install dependencies
         run: |
           dnf install -y epel-release
           dnf install -y make uv
-          uv tool install pip-audit
 
       - name: Scan dependencies
         run: make audit
