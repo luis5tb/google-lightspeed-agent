@@ -24,7 +24,6 @@
 #   --mcp-image <image>       Container image for the MCP server
 #                             (default: gcr.io/$PROJECT_ID/red-hat-lightspeed-mcp:latest)
 #   --allow-unauthenticated   Allow public access
-#   --build                   Build images before deploying
 #   --dry-run                 Preview gcloud commands without executing them
 #
 # Architecture:
@@ -116,7 +115,6 @@ MCP_IMAGE="${MCP_IMAGE:-gcr.io/${PROJECT_ID}/red-hat-lightspeed-mcp:latest}"
 # Parse arguments
 DEPLOY_SERVICE="all"  # all, handler, agent
 ALLOW_UNAUTH=false
-BUILD_IMAGE=false
 DRY_RUN=false
 
 while [[ $# -gt 0 ]]; do
@@ -147,17 +145,13 @@ while [[ $# -gt 0 ]]; do
             ALLOW_UNAUTH=true
             shift
             ;;
-        --build)
-            BUILD_IMAGE=true
-            shift
-            ;;
         --dry-run)
             DRY_RUN=true
             shift
             ;;
         *)
             log_error "Unknown option: $1"
-            echo "Usage: $0 [--service all|handler|agent|lb] [--image IMAGE] [--handler-image IMAGE] [--mcp-image IMAGE] [--allow-unauthenticated] [--build] [--dry-run]"
+            echo "Usage: $0 [--service all|handler|agent|lb] [--image IMAGE] [--handler-image IMAGE] [--mcp-image IMAGE] [--allow-unauthenticated] [--dry-run]"
             exit 1
             ;;
     esac
@@ -235,30 +229,6 @@ log_info "  MCP Image: $MCP_IMAGE"
 # =============================================================================
 # Build images if requested
 # =============================================================================
-build_agent_image() {
-    log_info "Building agent image..."
-
-    gcloud builds submit \
-        --tag "$AGENT_IMAGE" \
-        --project "$PROJECT_ID" \
-        --dockerfile Containerfile \
-        .
-
-    log_info "Image built: $AGENT_IMAGE"
-}
-
-build_handler_image() {
-    log_info "Building marketplace handler image..."
-
-    gcloud builds submit \
-        --tag "$HANDLER_IMAGE" \
-        --project "$PROJECT_ID" \
-        --dockerfile Containerfile.marketplace-handler \
-        .
-
-    log_info "Image built: $HANDLER_IMAGE"
-}
-
 # =============================================================================
 # Deploy using service YAML configs
 # =============================================================================
@@ -722,22 +692,6 @@ fi
 # =============================================================================
 # Main deployment
 # =============================================================================
-
-# Build images if requested
-if [[ "$BUILD_IMAGE" == "true" ]]; then
-    case "$DEPLOY_SERVICE" in
-        all)
-            build_handler_image
-            build_agent_image
-            ;;
-        handler)
-            build_handler_image
-            ;;
-        agent)
-            build_agent_image
-            ;;
-    esac
-fi
 
 # Deploy based on service selection
 case "$DEPLOY_SERVICE" in

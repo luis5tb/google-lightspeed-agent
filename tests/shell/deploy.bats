@@ -66,11 +66,6 @@ teardown() {
     [[ "$ALLOW_UNAUTH" == "true" ]]
 }
 
-@test "--build sets BUILD_IMAGE=true" {
-    source_deploy --build
-    [[ "$BUILD_IMAGE" == "true" ]]
-}
-
 @test "unknown flag exits with error" {
     run bash -c '
         source tests/shell/mock_gcloud.sh
@@ -176,6 +171,13 @@ teardown() {
 # ===========================================================================
 # Ingress behavior
 # ===========================================================================
+
+@test "deploy_handler calls gcloud run services replace" {
+    source_deploy
+    run deploy_handler
+    [[ "$status" -eq 0 ]]
+    grep -q "gcloud run services replace" "$GCLOUD_LOG_FILE"
+}
 
 @test "deploy_agent sets ingress via gcloud when LB disabled" {
     source_deploy

@@ -254,6 +254,8 @@ jobs:
         run: shellcheck deploy/cloudrun/*.sh
       - name: Run shell tests
         run: bats tests/shell/
+      - name: Check shell test coverage
+        run: bash tests/shell/check_coverage.sh
 
   ci-gate:
     name: CI Gate
