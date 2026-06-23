@@ -239,6 +239,25 @@ teardown() {
     [[ "$output" == *"[DRY-RUN] gcloud compute security-policies rules create"* ]]
 }
 
+@test "configure_pubsub_push skips when ENABLE_MARKETPLACE is not true" {
+    export ENABLE_MARKETPLACE="false"
+    source_deploy
+
+    run configure_pubsub_push
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == *"Skipping Pub/Sub"* ]]
+}
+
+@test "configure_pubsub_push creates subscription when handler URL available" {
+    export ENABLE_MARKETPLACE="true"
+    export MOCK_GCLOUD_FORMAT_VALUE="https://handler.example.com"
+    source_deploy
+
+    run configure_pubsub_push
+    [[ "$status" -eq 0 ]]
+    grep -q "pubsub subscriptions" "$GCLOUD_LOG_FILE"
+}
+
 @test "dry-run configure_pubsub_push returns early when handler URL unavailable" {
     source_deploy --dry-run
 
