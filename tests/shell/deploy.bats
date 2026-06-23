@@ -179,6 +179,14 @@ teardown() {
     grep -q "gcloud run services replace" "$GCLOUD_LOG_FILE"
 }
 
+@test "deploy_handler adds IAM binding when ALLOW_UNAUTH=true" {
+    source_deploy --allow-unauthenticated
+    run deploy_handler
+    [[ "$status" -eq 0 ]]
+    grep -q "add-iam-policy-binding" "$GCLOUD_LOG_FILE"
+    grep -q "allUsers" "$GCLOUD_LOG_FILE"
+}
+
 @test "deploy_agent sets ingress via gcloud when LB disabled" {
     source_deploy
     ENABLE_LB_AGENT="false"
