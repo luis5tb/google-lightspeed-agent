@@ -246,6 +246,22 @@ class Settings(BaseSettings):
         description="Max unreported periods to process per backfill run",
     )
 
+    # Data purge: retention and scheduling for cancelled/deleted entitlements
+    data_retention_days: int = Field(
+        default=90,
+        ge=1,
+        description="Days to retain data for cancelled/deleted entitlements before hard purge",
+    )
+    data_purge_enabled: bool = Field(
+        default=False,
+        description="Enable automated periodic purging of expired cancelled/deleted entitlements",
+    )
+    data_purge_interval_hours: int = Field(
+        default=24,
+        ge=1,
+        description="Interval in hours between automated data purge runs",
+    )
+
     # Rate Limiting (Redis-backed)
     rate_limit_requests_per_minute: int = Field(
         default=60,

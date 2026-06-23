@@ -175,6 +175,20 @@ async def handle_procurement_event(message: dict):
         )
 ```
 
+## Data Retention and Purge
+
+When an entitlement is cancelled or deleted, the entitlement state is updated and the associated OAuth client is removed, but all data is retained for auditing purposes. After `DATA_RETENTION_DAYS` (default 90), a background scheduler task hard-deletes all associated data: usage records, DCR client record, entitlement record, and rate limit keys (best-effort, keys auto-expire within 1 hour regardless).
+
+**Configuration:**
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DATA_PURGE_ENABLED` | `false` | Must be explicitly enabled |
+| `DATA_RETENTION_DAYS` | `90` | Minimum 1 day |
+| `DATA_PURGE_INTERVAL_HOURS` | `24` | How often the purge scheduler runs |
+
+The purge scheduler processes up to 100 expired entitlements per run. Rate-limit keys in Redis are cleaned on a best-effort basis (they auto-expire within 1 hour regardless).
+
 ## Usage Metering
 
 ### Metrics Tracked
