@@ -66,6 +66,16 @@ make logs                              # Agent logs
 make help                              # List all available targets
 ```
 
+### Shell Tests (deploy.sh)
+
+Changes to `deploy/cloudrun/deploy.sh` must include test updates in `tests/shell/`. CI enforces that every function in `deploy.sh` is referenced in the bats tests.
+
+```bash
+make test-shell                        # Run bats tests
+shellcheck deploy/cloudrun/*.sh        # Lint shell scripts
+bash tests/shell/check_coverage.sh     # Verify all functions have tests
+```
+
 ### Before Pushing
 
 ```bash
@@ -73,6 +83,8 @@ make lint && make test
 ```
 
 If you modified `pyproject.toml`, also run `make lock` and commit the lock files together.
+
+If you modified `deploy/cloudrun/deploy.sh`, also run `make test-shell` and ensure `bash tests/shell/check_coverage.sh` passes.
 
 When your changes affect architecture, configuration, APIs, or behavior, update the relevant docs in the same PR:
 - `docs/` — detailed reference documentation (architecture, authentication, configuration, marketplace, MCP integration)

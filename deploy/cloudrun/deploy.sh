@@ -42,6 +42,11 @@
 #   - Run setup.sh first to configure GCP services
 #   - Update secrets in Secret Manager with actual values
 #
+# Testing:
+#   Changes to this script must include corresponding test updates in
+#   tests/shell/deploy.bats. CI enforces that every function has test coverage.
+#   See CONTRIBUTING.md for details.
+#
 # =============================================================================
 
 set -euo pipefail
