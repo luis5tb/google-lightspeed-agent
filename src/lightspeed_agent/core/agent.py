@@ -142,6 +142,11 @@ def _setup_environment() -> None:
         os.environ["GOOGLE_API_KEY"] = settings.google_api_key
 
     if settings.google_application_credentials:
+        path = pathlib.Path(settings.google_application_credentials)
+        if not path.is_file():
+            logger.warning(
+                "GOOGLE_APPLICATION_CREDENTIALS path does not exist: %s", path
+            )
         os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = settings.google_application_credentials
         logger.info(
             "Using GCP service account credentials from %s",

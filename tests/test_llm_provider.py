@@ -266,14 +266,30 @@ def test_google_application_credentials_accepts_path():
     assert s.google_application_credentials == "/path/to/sa.json"
 
 
-def test_setup_environment_sets_google_application_credentials(monkeypatch):
+def test_setup_environment_sets_google_application_credentials(monkeypatch, tmp_path):
     from lightspeed_agent.core.agent import _setup_environment
 
-    monkeypatch.setenv("GOOGLE_APPLICATION_CREDENTIALS", "/tmp/sa-key.json")
+    creds_file = tmp_path / "sa-key.json"
+    creds_file.write_text("{}")
+    monkeypatch.setenv("GOOGLE_APPLICATION_CREDENTIALS", str(creds_file))
     get_settings.cache_clear()
     try:
         _setup_environment()
-        assert os.environ["GOOGLE_APPLICATION_CREDENTIALS"] == "/tmp/sa-key.json"
+        assert os.environ["GOOGLE_APPLICATION_CREDENTIALS"] == str(creds_file)
+    finally:
+        os.environ.pop("GOOGLE_APPLICATION_CREDENTIALS", None)
+        get_settings.cache_clear()
+
+
+def test_setup_environment_warns_when_credentials_file_missing(monkeypatch, caplog):
+    from lightspeed_agent.core.agent import _setup_environment
+
+    monkeypatch.setenv("GOOGLE_APPLICATION_CREDENTIALS", "/nonexistent/path/sa.json")
+    get_settings.cache_clear()
+    try:
+        _setup_environment()
+        assert os.environ["GOOGLE_APPLICATION_CREDENTIALS"] == "/nonexistent/path/sa.json"
+        assert "GOOGLE_APPLICATION_CREDENTIALS path does not exist" in caplog.text
     finally:
         os.environ.pop("GOOGLE_APPLICATION_CREDENTIALS", None)
         get_settings.cache_clear()
