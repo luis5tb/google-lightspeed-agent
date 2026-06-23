@@ -13,6 +13,7 @@
     clientSecret: null,
     accessToken: null,
     messageId: 0,
+    contextId: null,
   };
 
   // --- DOM refs ---
@@ -324,6 +325,7 @@
     state.clientSecret = null;
     state.accessToken = null;
     state.messageId = 0;
+    state.contextId = null;
 
     // Reset UI
     setOrderMode("create");
@@ -836,18 +838,20 @@
           "Content-Type": "application/json",
           Authorization: "Bearer " + state.accessToken,
         },
-        body: JSON.stringify({
-          jsonrpc: "2.0",
-          method: "message/send",
-          id: String(state.messageId),
-          params: {
-            message: {
-              role: "user",
-              parts: [{ kind: "text", text: text }],
-              messageId: generateUUID(),
-            },
-          },
-        }),
+        body: (function () {
+          var message = {
+            role: "user",
+            parts: [{ kind: "text", text: text }],
+            messageId: generateUUID(),
+          };
+          if (state.contextId) message.contextId = state.contextId;
+          return JSON.stringify({
+            jsonrpc: "2.0",
+            method: "message/send",
+            id: String(state.messageId),
+            params: { message: message },
+          });
+        }()),
       });
 
       thinkingEl.remove();
@@ -864,6 +868,7 @@
       }
 
       var result = data.result;
+      if (result && result.contextId) state.contextId = result.contextId;
       var collected = collectParts(result);
 
       var showThinking = $("#toggle-thinking") && $("#toggle-thinking").checked;
@@ -902,6 +907,13 @@
     }
   }
 
+  function newConversation() {
+    state.contextId = null;
+    state.messageId = 0;
+    $("#conversation").innerHTML = "";
+    hideError("#a2a-error");
+  }
+
   // --- Event listeners ---
 
   $("#btn-mode-create").addEventListener("click", function () { setOrderMode("create"); });
@@ -913,6 +925,7 @@
   $("#btn-exchange-code").addEventListener("click", exchangeCode);
   $("#btn-use-manual-token").addEventListener("click", useManualToken);
   $("#btn-send").addEventListener("click", sendMessage);
+  $("#btn-new-conversation").addEventListener("click", newConversation);
 
   $("#input-message").addEventListener("keydown", function (e) {
     if (e.key === "Enter" && !e.shiftKey) {
