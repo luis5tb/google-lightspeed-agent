@@ -9,7 +9,7 @@ TEST_DIR="tests/shell"
 
 SKIP_FUNCTIONS="log_info|log_warn|log_error"
 
-functions=$(grep -oP '^[a-z_]+(?=\(\))' "$DEPLOY_SCRIPT" | grep -Ev "^(${SKIP_FUNCTIONS})$")
+functions=$(grep -oE '^[a-z_]+\(\)' "$DEPLOY_SCRIPT" | sed 's/()//' | grep -Ev "^(${SKIP_FUNCTIONS})$")
 
 missing=()
 for func in $functions; do

@@ -179,6 +179,14 @@ teardown() {
     grep -q "gcloud run services replace" "$GCLOUD_LOG_FILE"
 }
 
+@test "deploy_handler adds IAM binding when ALLOW_UNAUTH=true" {
+    source_deploy --allow-unauthenticated
+    run deploy_handler
+    [[ "$status" -eq 0 ]]
+    grep -q "add-iam-policy-binding" "$GCLOUD_LOG_FILE"
+    grep -q "allUsers" "$GCLOUD_LOG_FILE"
+}
+
 @test "deploy_agent sets ingress via gcloud when LB disabled" {
     source_deploy
     ENABLE_LB_AGENT="false"
@@ -229,6 +237,25 @@ teardown() {
     [[ "$status" -eq 0 ]]
     [[ "$output" == *"[DRY-RUN] gcloud compute security-policies create"* ]]
     [[ "$output" == *"[DRY-RUN] gcloud compute security-policies rules create"* ]]
+}
+
+@test "configure_pubsub_push skips when ENABLE_MARKETPLACE is not true" {
+    export ENABLE_MARKETPLACE="false"
+    source_deploy
+
+    run configure_pubsub_push
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == *"Skipping Pub/Sub"* ]]
+}
+
+@test "configure_pubsub_push creates subscription when handler URL available" {
+    export ENABLE_MARKETPLACE="true"
+    export MOCK_GCLOUD_FORMAT_VALUE="https://handler.example.com"
+    source_deploy
+
+    run configure_pubsub_push
+    [[ "$status" -eq 0 ]]
+    grep -q "pubsub subscriptions" "$GCLOUD_LOG_FILE"
 }
 
 @test "dry-run configure_pubsub_push returns early when handler URL unavailable" {

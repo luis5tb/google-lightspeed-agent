@@ -10,7 +10,7 @@ help:
 	@echo "Development:"
 	@echo "  make dev          - Run agent in development mode (no container)"
 	@echo "  make test         - Run tests"
-	@echo "  make test-shell   - Run shell tests (bats)"
+	@echo "  make test-shell   - Run shell tests (shellcheck + bats + coverage)"
 	@echo "  make lint         - Run linter and type checker"
 	@echo ""
 	@echo "Dependency Management:"
@@ -53,8 +53,12 @@ test:
 	source .venv/bin/activate && python -m pytest tests/ -v
 
 test-shell:
-	@echo "Running shell tests..."
+	@echo "Running shellcheck..."
+	shellcheck deploy/cloudrun/*.sh
+	@echo "Running bats tests..."
 	bats tests/shell/
+	@echo "Checking function coverage..."
+	bash tests/shell/check_coverage.sh
 
 lint:
 	@echo "Running linter..."
