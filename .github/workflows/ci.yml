@@ -94,7 +94,7 @@ jobs:
               - 'pyproject.toml'
               - 'requirements-*.txt'
             shell:
-              - 'deploy/**'
+              - 'deploy/cloudrun/**'
               - 'tests/shell/**'
               - 'Makefile'
 
