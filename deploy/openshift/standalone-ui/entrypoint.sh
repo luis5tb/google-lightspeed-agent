@@ -7,7 +7,7 @@ mkdir -p /tmp/html
 cat > /tmp/html/config.js << EOF
 window.CONFIG = {
   agentUrl: "$(escape_js "${AGENT_URL:-http://localhost:8000}")",
-  ssoIssuerUrl: "$(escape_js "${SSO_ISSUER_URL:-https://sso.redhat.com/auth/realms/redhat-external}")",
+  ssoIssuerUrl: "$(escape_js "${SSO_ISSUER_URL:-https://sso.stage.redhat.com/auth/realms/redhat-external}")",
   redirectUris: "$(escape_js "${REDIRECT_URIS:-https://vertexaisearch.cloud.google.com/oauth-redirect}")"
 };
 EOF

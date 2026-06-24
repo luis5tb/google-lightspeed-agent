@@ -475,24 +475,17 @@ The interface guides you through the full order lifecycle:
    **a.** Copy the authorization URL displayed in Step A and open it in your
    browser. Log in with your Red Hat account.
 
-   **b.** After login, SSO redirects to the registered redirect URI with a
-   `code` parameter in the URL. Copy the `code` value from the URL bar.
+   **b.** After login, SSO redirects to the registered redirect URI. The
+   browser will show an error page — typically **"An error occurred during
+   the OAuth exchange"**. **This is expected.** Look at the browser URL
+   bar — it contains a `code` parameter. For example:
 
-   > **Redirect URI workaround:** The registered redirect URI
-   > (`vertexaisearch.cloud.google.com/oauth-redirect`) will consume the
-   > authorization code before you can copy it. To prevent this, temporarily
-   > block the domain by adding it to `/etc/hosts`:
-   >
-   > ```bash
-   > # Block the redirect page from consuming the code
-   > echo "127.0.0.1 vertexaisearch.cloud.google.com" | sudo tee -a /etc/hosts
-   >
-   > # After testing, remove the entry
-   > sudo sed -i '/vertexaisearch.cloud.google.com/d' /etc/hosts
-   > ```
-   >
-   > With the block in place, the browser will show a connection error after
-   > login, but the `code` parameter will be visible in the URL bar.
+   ```
+   https://vertexaisearch.cloud.google.com/oauth-redirect?code=abc123&session_state=...
+   ```
+
+   Copy just the code value (the part after `code=` and before the next
+   `&`).
 
    **c.** Paste the code into the UI and click **Generate Token Exchange
    Command**. Copy the displayed `curl` command, run it in your terminal,
@@ -586,9 +579,9 @@ The MCP server runs as a sidecar container in the agent pod.
 | `mcp.port` | MCP server port | `8081` |
 | `mcp.host` | MCP server listen address | `0.0.0.0` |
 | `mcp.readOnly` | Enable read-only mode (safe tool subset) | `true` |
-| `mcp.baseUrl` | Red Hat console base URL (override for staging) | `""` |
-| `mcp.ssoBaseUrl` | Red Hat SSO base URL for MCP (override for staging) | `""` |
-| `mcp.proxyUrl` | HTTP proxy for MCP (required for some staging environments) | `""` |
+| `mcp.baseUrl` | Red Hat console base URL | `"https://console.stage.redhat.com"` |
+| `mcp.ssoBaseUrl` | Red Hat SSO base URL for MCP | `"https://sso.stage.redhat.com"` |
+| `mcp.proxyUrl` | HTTP proxy for MCP (may be required for staging behind Akamai) | `""` |
 
 ### Google AI / Gemini
 
@@ -673,7 +666,7 @@ The service account key is mounted into the agent container and `GOOGLE_APPLICAT
 | `auth.skipDcrJwtValidation` | Skip DCR software_statement JWT signature verification. Enable for deployments using self-signed JWTs. Does not affect agent auth. | `false` |
 | `auth.skipPubsubOidcVerification` | Skip Google OIDC token verification on the handler's `/pubsub` endpoint. Enable for deployments where simulated Pub/Sub events come from the UI, not Google Cloud. Blocked on Cloud Run. | `false` |
 | `auth.corsAllowedOrigins` | CORS allowed origins (comma-separated) | `""` |
-| `sso.issuer` | Red Hat SSO issuer URL | `https://sso.redhat.com/auth/realms/redhat-external` |
+| `sso.issuer` | Red Hat SSO issuer URL | `https://sso.stage.redhat.com/auth/realms/redhat-external` |
 | `sso.requiredScope` | Required OAuth scopes (comma-separated) | `api.console,api.ocm` |
 | `sso.allowedScopes` | Allowed OAuth scopes allowlist (comma-separated) | `openid,profile,email,api.console,api.ocm,metering:admin` |
 
@@ -751,7 +744,7 @@ Deployed only when `deploymentMode: standalone`.
 | `handler.metering.staleClaimMinutes` | Stale claim timeout | `15` |
 | `handler.metering.backfillMaxAgeHours` | Max backfill age | `168` |
 | `handler.metering.backfillLimitPerRun` | Max records per backfill run | `20` |
-| `handler.gma.apiBaseUrl` | GMA SSO API base URL | `https://sso.redhat.com/...` |
+| `handler.gma.apiBaseUrl` | GMA SSO API base URL | `https://sso.stage.redhat.com/...` |
 | `handler.gma.apiTimeout` | GMA API timeout (seconds) | `30` |
 
 ### Service Control
@@ -856,27 +849,27 @@ OpenShift and Cloud Run provide different infrastructure-level security:
 > and body size limits provide baseline protection without additional
 > infrastructure.
 
-## Using Red Hat Staging Environment
+## Using Red Hat Production Environment
 
-To point the deployment at `console.stage.redhat.com` instead of production,
+The default configuration points at the Red Hat **staging** environment
+(`sso.stage.redhat.com`, `console.stage.redhat.com`). To switch to production,
 add these overrides to your `my-values.yaml`:
 
 ```yaml
-# SSO issuer — staging realm
+# SSO issuer — production realm
 sso:
-  issuer: "https://sso.stage.redhat.com/auth/realms/redhat-external"
+  issuer: "https://sso.redhat.com/auth/realms/redhat-external"
 
-# MCP sidecar — staging console and SSO
+# MCP sidecar — production console and SSO
 mcp:
-  baseUrl: "https://console.stage.redhat.com"
-  ssoBaseUrl: "https://sso.stage.redhat.com"
-  # HTTP proxy — required if staging is behind edge lockdown
-  proxyUrl: "http://<your-proxy>"
+  baseUrl: "https://console.redhat.com"
+  ssoBaseUrl: "https://sso.redhat.com"
+  proxyUrl: ""
 
-# Handler GMA API — staging SSO (standalone mode only)
+# Handler GMA API — production SSO (standalone mode only)
 handler:
   gma:
-    apiBaseUrl: "https://sso.stage.redhat.com/auth/realms/redhat-external/apis/beta/acs/v1/"
+    apiBaseUrl: "https://sso.redhat.com/auth/realms/redhat-external/apis/beta/acs/v1/"
 ```
 
 ## Scaling

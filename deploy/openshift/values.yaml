@@ -76,11 +76,11 @@ mcp:
   # Matches CloudRun: excludes image_builder (requires network access to OpenAPI spec).
   # Available: advisor, inventory, vulnerability, planning, remediations, image_builder, rhsm, content_sources, rbac
   toolset: "advisor,inventory,vulnerability,planning,rhsm,content_sources,rbac"
-  # Red Hat console base URL — override for staging (https://console.stage.redhat.com)
-  baseUrl: ""
-  # Red Hat SSO base URL for MCP — override for staging (https://sso.stage.redhat.com)
-  ssoBaseUrl: ""
-  # HTTP proxy for MCP — required for staging (behind Akamai edge lockdown)
+  # Red Hat console base URL (override for production: https://console.redhat.com)
+  baseUrl: "https://console.stage.redhat.com"
+  # Red Hat SSO base URL for MCP (override for production: https://sso.redhat.com)
+  ssoBaseUrl: "https://sso.stage.redhat.com"
+  # HTTP proxy for MCP — may be required for staging (behind Akamai edge lockdown)
   proxyUrl: ""
   resources:
     requests:
@@ -121,7 +121,7 @@ llm:
 # Red Hat SSO / OAuth 2.0
 # ---------------------------------------------------------------------------
 sso:
-  issuer: "https://sso.redhat.com/auth/realms/redhat-external"
+  issuer: "https://sso.stage.redhat.com/auth/realms/redhat-external"
   requiredScope: "api.console,api.ocm"
   allowedScopes: "openid,profile,email,api.console,api.ocm,metering:admin"
 
@@ -275,7 +275,7 @@ handler:
     backfillMaxAgeHours: 168
     backfillLimitPerRun: 20
   gma:
-    apiBaseUrl: "https://sso.redhat.com/auth/realms/redhat-external/apis/beta/acs/v1/"
+    apiBaseUrl: "https://sso.stage.redhat.com/auth/realms/redhat-external/apis/beta/acs/v1/"
     apiTimeout: 30
   dcr:
     clientNamePrefix: "gemini-order-"
