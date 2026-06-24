@@ -1,7 +1,7 @@
 # Red Hat Lightspeed Agent for Google Cloud - Makefile
 # Common development and deployment commands
 
-.PHONY: help build build-agent build-marketplace run stop logs logs-mcp clean test lint dev check-env lock lock-agent lock-handler lock-dev lock-check audit
+.PHONY: help build build-agent build-marketplace run stop logs logs-mcp clean test test-shell lint dev check-env lock lock-agent lock-handler lock-dev lock-check audit
 
 # Default target
 help:
@@ -10,6 +10,7 @@ help:
 	@echo "Development:"
 	@echo "  make dev          - Run agent in development mode (no container)"
 	@echo "  make test         - Run tests"
+	@echo "  make test-shell   - Run shell tests (shellcheck + bats + coverage)"
 	@echo "  make lint         - Run linter and type checker"
 	@echo ""
 	@echo "Dependency Management:"
@@ -51,6 +52,14 @@ test:
 	@echo "Running tests..."
 	source .venv/bin/activate && python -m pytest tests/ -v
 
+test-shell:
+	@echo "Running shellcheck..."
+	shellcheck deploy/cloudrun/*.sh
+	@echo "Running bats tests..."
+	bats tests/shell/
+	@echo "Checking function coverage..."
+	bash tests/shell/check_coverage.sh
+
 lint:
 	@echo "Running linter..."
 	source .venv/bin/activate && ruff check src/ tests/
@@ -87,19 +96,19 @@ lock-check:
 	@cp requirements-agent.txt /tmp/requirements-agent-check.txt
 	@uv pip compile --generate-hashes --python-version=3.12 --python-platform=linux \
 		--extra agent --output-file=/tmp/requirements-agent-check.txt pyproject.toml
-	@diff <(tail -n +3 requirements-agent.txt) <(tail -n +3 /tmp/requirements-agent-check.txt) || \
+	@diff -u <(tail -n +3 requirements-agent.txt) <(tail -n +3 /tmp/requirements-agent-check.txt) || \
 		(echo "ERROR: requirements-agent.txt is out of sync. Run 'make lock' to update." && rm -f /tmp/requirements-agent-check.txt && exit 1)
 	@rm -f /tmp/requirements-agent-check.txt
 	@cp requirements-handler.txt /tmp/requirements-handler-check.txt
 	@uv pip compile --generate-hashes --python-version=3.12 --python-platform=linux \
 		--output-file=/tmp/requirements-handler-check.txt pyproject.toml
-	@diff <(tail -n +3 requirements-handler.txt) <(tail -n +3 /tmp/requirements-handler-check.txt) || \
+	@diff -u <(tail -n +3 requirements-handler.txt) <(tail -n +3 /tmp/requirements-handler-check.txt) || \
 		(echo "ERROR: requirements-handler.txt is out of sync. Run 'make lock' to update." && rm -f /tmp/requirements-handler-check.txt && exit 1)
 	@rm -f /tmp/requirements-handler-check.txt
 	@cp requirements-dev.txt /tmp/requirements-dev-check.txt
 	@uv pip compile --generate-hashes --python-version=3.12 --python-platform=linux \
 		--extra dev --output-file=/tmp/requirements-dev-check.txt pyproject.toml
-	@diff <(tail -n +3 requirements-dev.txt) <(tail -n +3 /tmp/requirements-dev-check.txt) || \
+	@diff -u <(tail -n +3 requirements-dev.txt) <(tail -n +3 /tmp/requirements-dev-check.txt) || \
 		(echo "ERROR: requirements-dev.txt is out of sync. Run 'make lock' to update." && rm -f /tmp/requirements-dev-check.txt && exit 1)
 	@rm -f /tmp/requirements-dev-check.txt
 	@echo "✓ Lock files are in sync"

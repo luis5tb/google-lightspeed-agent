@@ -59,6 +59,27 @@ CVE fixes should be isolated in their own PRs so they:
 - Do not block other PRs that have no dependency changes
 - Are easy to revert if a patched version introduces a regression
 
+## Shell Tests for `deploy.sh`
+
+Changes to `deploy/cloudrun/deploy.sh` must include corresponding test updates in `tests/shell/`. CI only validates that existing tests pass — it does not detect missing coverage for new code paths. If you add or rename a function in `deploy.sh`, add tests that exercise it in `tests/shell/deploy.bats`.
+
+### What to test
+
+- **New functions**: add at least one `@test` block that calls the function and verifies its behavior (arguments, gcloud commands invoked, exit codes).
+- **Renamed functions**: update existing test references to match the new name.
+- **New flags or env vars**: add argument-parsing and validation tests.
+- **New code paths in existing functions**: add a test case covering the new branch (e.g., a new conditional, error path, or feature toggle).
+
+### Running shell tests locally
+
+```bash
+sudo dnf install -y bats shellcheck   # or: sudo apt-get install -y bats shellcheck
+make test-shell                        # runs: bats tests/shell/
+shellcheck deploy/cloudrun/*.sh        # lint shell scripts
+```
+
+The test suite uses a mock `gcloud` (`tests/shell/mock_gcloud.sh`) that logs invocations instead of calling the real CLI. See existing tests in `deploy.bats` for patterns.
+
 ## CI Pipeline
 
 GitHub Actions (`.github/workflows/ci.yml`) runs on CentOS Stream 9 with Python 3.12:
@@ -71,6 +92,7 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on CentOS Stream 9 with Python 
 6. **Test** — pytest
 7. **Build** — Podman container build
 8. **Container Scan** — Trivy vulnerability scan on built container images
-9. **CI Gate** — blocks merge if any job fails
+9. **Shell Tests** — shellcheck linting + bats tests + function coverage check for `deploy.sh`
+10. **CI Gate** — blocks merge if any job fails
 
 Secret scanning is configured via `.gitleaks.toml`. CVE alerting for Python dependencies is managed via Renovate (`renovate.json`).

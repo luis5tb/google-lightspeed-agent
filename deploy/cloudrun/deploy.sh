@@ -24,7 +24,7 @@
 #   --mcp-image <image>       Container image for the MCP server
 #                             (default: gcr.io/$PROJECT_ID/red-hat-lightspeed-mcp:latest)
 #   --allow-unauthenticated   Allow public access
-#   --build                   Build images before deploying
+#   --dry-run                 Preview gcloud commands without executing them
 #
 # Architecture:
 #   ┌─────────────────────────┐     ┌─────────────────────────┐
@@ -40,6 +40,11 @@
 # Prerequisites:
 #   - Run setup.sh first to configure GCP services
 #   - Update secrets in Secret Manager with actual values
+#
+# Testing:
+#   Changes to this script must include corresponding test updates in
+#   tests/shell/deploy.bats. CI enforces that every function has test coverage.
+#   See CONTRIBUTING.md for details.
 #
 # =============================================================================
 
@@ -110,7 +115,7 @@ MCP_IMAGE="${MCP_IMAGE:-gcr.io/${PROJECT_ID}/red-hat-lightspeed-mcp:latest}"
 # Parse arguments
 DEPLOY_SERVICE="all"  # all, handler, agent
 ALLOW_UNAUTH=false
-BUILD_IMAGE=false
+DRY_RUN=false
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -140,17 +145,30 @@ while [[ $# -gt 0 ]]; do
             ALLOW_UNAUTH=true
             shift
             ;;
-        --build)
-            BUILD_IMAGE=true
+        --dry-run)
+            DRY_RUN=true
             shift
             ;;
         *)
             log_error "Unknown option: $1"
-            echo "Usage: $0 [--service all|handler|agent|lb] [--image IMAGE] [--handler-image IMAGE] [--mcp-image IMAGE] [--allow-unauthenticated] [--build]"
+            echo "Usage: $0 [--service all|handler|agent|lb] [--image IMAGE] [--handler-image IMAGE] [--mcp-image IMAGE] [--allow-unauthenticated] [--dry-run]"
             exit 1
             ;;
     esac
 done
+
+# Dry-run mode: intercept gcloud to print commands without executing them
+if [[ "$DRY_RUN" == "true" ]]; then
+    log_warn "DRY-RUN mode — no resources will be created or modified"
+    gcloud() {
+        local subargs="$*"
+        if [[ " $subargs " == *" describe "* || " $subargs " == *" list "* ]]; then
+            return 1
+        fi
+        echo "[DRY-RUN] gcloud $subargs"
+    }
+    export -f gcloud
+fi
 
 # Validate required variables
 if [[ -z "$PROJECT_ID" ]]; then
@@ -207,33 +225,6 @@ log_info "  Service(s): $DEPLOY_SERVICE"
 log_info "  Agent Image: $AGENT_IMAGE"
 log_info "  Handler Image: $HANDLER_IMAGE"
 log_info "  MCP Image: $MCP_IMAGE"
-
-# =============================================================================
-# Build images if requested
-# =============================================================================
-build_agent_image() {
-    log_info "Building agent image..."
-
-    gcloud builds submit \
-        --tag "$AGENT_IMAGE" \
-        --project "$PROJECT_ID" \
-        --dockerfile Containerfile \
-        .
-
-    log_info "Image built: $AGENT_IMAGE"
-}
-
-build_handler_image() {
-    log_info "Building marketplace handler image..."
-
-    gcloud builds submit \
-        --tag "$HANDLER_IMAGE" \
-        --project "$PROJECT_ID" \
-        --dockerfile Containerfile.marketplace-handler \
-        .
-
-    log_info "Image built: $HANDLER_IMAGE"
-}
 
 # =============================================================================
 # Deploy using service YAML configs
@@ -413,7 +404,7 @@ configure_pubsub_push() {
 setup_service_lb() {
     local service_label="$1"
     local cloud_run_service="$2"
-    local domain_name="$3"
+    local _domain_name="$3"  # reserved for future SSL cert creation
     local cloud_armor_enabled="$4"
     local waf_sensitivity="${5:-1}"
 
@@ -577,7 +568,7 @@ setup_service_lb() {
     # -------------------------------------------------------------------------
     # Create HTTPS proxy with managed SSL certificate
     # -------------------------------------------------------------------------
-    if ! gcloud compute ssl-certificates describe "$cert_name" \
+    if [[ "$DRY_RUN" != "true" ]] && ! gcloud compute ssl-certificates describe "$cert_name" \
         --global --project="$PROJECT_ID" &>/dev/null; then
         log_error "SSL certificate '$cert_name' does not exist. Run setup.sh first."
         return 1
@@ -624,24 +615,80 @@ setup_service_lb() {
 }
 
 # =============================================================================
-# Main deployment
+# Helper functions used by post-deployment (defined before source guard)
 # =============================================================================
 
-# Build images if requested
-if [[ "$BUILD_IMAGE" == "true" ]]; then
-    case "$DEPLOY_SERVICE" in
-        all)
-            build_handler_image
-            build_agent_image
-            ;;
-        handler)
-            build_handler_image
-            ;;
-        agent)
-            build_agent_image
-            ;;
-    esac
+# Get and display service URLs based on what was deployed
+show_service_info() {
+    local service_name="$1"
+
+    if [[ "$DRY_RUN" == "true" ]]; then
+        log_info "$service_name URL: [dry-run — not available]"
+        return
+    fi
+
+    local service_url
+    service_url=$(gcloud run services describe "$service_name" \
+        --region="$REGION" \
+        --project="$PROJECT_ID" \
+        --format='value(status.url)' 2>/dev/null || echo "")
+
+    if [[ -n "$service_url" ]]; then
+        log_info "$service_name URL: $service_url"
+        echo "  Test: curl $service_url/health"
+    else
+        log_warn "Could not retrieve $service_name URL"
+    fi
+}
+
+# Update AGENT_PROVIDER_URL and MARKETPLACE_HANDLER_URL on the agent service
+# so the AgentCard advertises the correct externally-reachable URLs.
+# When per-service LBs are enabled, uses GCLB domains instead of Cloud Run URLs.
+update_agentcard_urls() {
+    if [[ "$DRY_RUN" == "true" ]]; then
+        log_info "Dry-run: skipping AgentCard URL updates"
+        return
+    fi
+
+    local service_url handler_url env_vars
+    service_url=$(gcloud run services describe "$SERVICE_NAME" \
+        --region="$REGION" --project="$PROJECT_ID" \
+        --format='value(status.url)' 2>/dev/null || echo "")
+    handler_url=$(gcloud run services describe "$HANDLER_SERVICE_NAME" \
+        --region="$REGION" --project="$PROJECT_ID" \
+        --format='value(status.url)' 2>/dev/null || echo "")
+
+    [[ "$ENABLE_LB_AGENT" == "true" ]] && service_url="https://$AGENT_DOMAIN_NAME"
+    [[ "$ENABLE_LB_HANDLER" == "true" ]] && handler_url="https://$HANDLER_DOMAIN_NAME"
+
+    [[ -z "$service_url" ]] && return
+
+    env_vars="AGENT_PROVIDER_URL=$service_url"
+    if [[ -n "$handler_url" ]]; then
+        env_vars="$env_vars,MARKETPLACE_HANDLER_URL=$handler_url"
+    else
+        log_warn "Could not retrieve $HANDLER_SERVICE_NAME URL. MARKETPLACE_HANDLER_URL not set."
+    fi
+
+    log_info "Updating agent env vars: $env_vars"
+    if gcloud run services update "$SERVICE_NAME" \
+        --region="$REGION" --project="$PROJECT_ID" \
+        --update-env-vars="$env_vars" --quiet 2>/dev/null; then
+        log_info "Agent env vars updated successfully"
+    else
+        log_warn "Could not update agent env vars. Set AGENT_PROVIDER_URL and MARKETPLACE_HANDLER_URL manually."
+    fi
+}
+
+# Allow sourcing for testing — skip main execution
+if [[ "${BASH_SOURCE[0]}" != "$0" ]]; then
+    # shellcheck disable=SC2317
+    return 0 2>/dev/null || true
 fi
+
+# =============================================================================
+# Main deployment
+# =============================================================================
 
 # Deploy based on service selection
 case "$DEPLOY_SERVICE" in
@@ -692,7 +739,7 @@ case "$DEPLOY_SERVICE" in
     lb)
         log_info "Setting up load balancers only (no service redeploy)..."
         if [[ "$ENABLE_LB_HANDLER" == "true" ]]; then
-            if ! gcloud run services describe "$HANDLER_SERVICE_NAME" \
+            if [[ "$DRY_RUN" != "true" ]] && ! gcloud run services describe "$HANDLER_SERVICE_NAME" \
                 --region="$REGION" --project="$PROJECT_ID" &>/dev/null; then
                 log_error "$HANDLER_SERVICE_NAME does not exist. Deploy it first before setting up its LB."
                 exit 1
@@ -700,7 +747,7 @@ case "$DEPLOY_SERVICE" in
             setup_service_lb "handler" "$HANDLER_SERVICE_NAME" "$HANDLER_DOMAIN_NAME" "$ENABLE_CLOUD_ARMOR_HANDLER" "$CLOUD_ARMOR_SENSITIVITY_HANDLER"
         fi
         if [[ "$ENABLE_LB_AGENT" == "true" ]]; then
-            if ! gcloud run services describe "$SERVICE_NAME" \
+            if [[ "$DRY_RUN" != "true" ]] && ! gcloud run services describe "$SERVICE_NAME" \
                 --region="$REGION" --project="$PROJECT_ID" &>/dev/null; then
                 log_error "$SERVICE_NAME does not exist. Deploy it first before setting up its LB."
                 exit 1
@@ -724,58 +771,6 @@ esac
 
 log_info "Deployment complete!"
 echo ""
-
-# Get and display service URLs based on what was deployed
-show_service_info() {
-    local service_name="$1"
-    local service_url
-
-    service_url=$(gcloud run services describe "$service_name" \
-        --region="$REGION" \
-        --project="$PROJECT_ID" \
-        --format='value(status.url)' 2>/dev/null || echo "")
-
-    if [[ -n "$service_url" ]]; then
-        log_info "$service_name URL: $service_url"
-        echo "  Test: curl $service_url/health"
-    else
-        log_warn "Could not retrieve $service_name URL"
-    fi
-}
-
-# Update AGENT_PROVIDER_URL and MARKETPLACE_HANDLER_URL on the agent service
-# so the AgentCard advertises the correct externally-reachable URLs.
-# When per-service LBs are enabled, uses GCLB domains instead of Cloud Run URLs.
-update_agentcard_urls() {
-    local service_url handler_url env_vars
-    service_url=$(gcloud run services describe "$SERVICE_NAME" \
-        --region="$REGION" --project="$PROJECT_ID" \
-        --format='value(status.url)' 2>/dev/null || echo "")
-    handler_url=$(gcloud run services describe "$HANDLER_SERVICE_NAME" \
-        --region="$REGION" --project="$PROJECT_ID" \
-        --format='value(status.url)' 2>/dev/null || echo "")
-
-    [[ "$ENABLE_LB_AGENT" == "true" ]] && service_url="https://$AGENT_DOMAIN_NAME"
-    [[ "$ENABLE_LB_HANDLER" == "true" ]] && handler_url="https://$HANDLER_DOMAIN_NAME"
-
-    [[ -z "$service_url" ]] && return
-
-    env_vars="AGENT_PROVIDER_URL=$service_url"
-    if [[ -n "$handler_url" ]]; then
-        env_vars="$env_vars,MARKETPLACE_HANDLER_URL=$handler_url"
-    else
-        log_warn "Could not retrieve $HANDLER_SERVICE_NAME URL. MARKETPLACE_HANDLER_URL not set."
-    fi
-
-    log_info "Updating agent env vars: $env_vars"
-    if gcloud run services update "$SERVICE_NAME" \
-        --region="$REGION" --project="$PROJECT_ID" \
-        --update-env-vars="$env_vars" --quiet 2>/dev/null; then
-        log_info "Agent env vars updated successfully"
-    else
-        log_warn "Could not update agent env vars. Set AGENT_PROVIDER_URL and MARKETPLACE_HANDLER_URL manually."
-    fi
-}
 
 # Show info for deployed services
 case "$DEPLOY_SERVICE" in
@@ -802,28 +797,32 @@ case "$DEPLOY_SERVICE" in
         # When LB is enabled for the handler, the Cloud Run URL is no longer
         # reachable externally — update the agent's MARKETPLACE_HANDLER_URL to
         # point to the GCLB domain so the AgentCard advertises the right DCR URL.
-        handler_url=$(gcloud run services describe "$HANDLER_SERVICE_NAME" \
-            --region="$REGION" \
-            --project="$PROJECT_ID" \
-            --format='value(status.url)' 2>/dev/null || echo "")
-        if [[ "$ENABLE_LB_HANDLER" == "true" ]]; then
-            handler_url="https://$HANDLER_DOMAIN_NAME"
-        fi
-        if [[ -n "$handler_url" ]]; then
-            if gcloud run services describe "$SERVICE_NAME" \
-                --region="$REGION" --project="$PROJECT_ID" &>/dev/null; then
-                log_info "Updating agent MARKETPLACE_HANDLER_URL=$handler_url"
-                if gcloud run services update "$SERVICE_NAME" \
-                    --region="$REGION" \
-                    --project="$PROJECT_ID" \
-                    --update-env-vars="MARKETPLACE_HANDLER_URL=$handler_url" \
-                    --quiet 2>/dev/null; then
-                    log_info "Agent env vars updated successfully"
+        if [[ "$DRY_RUN" == "true" ]]; then
+            log_info "Dry-run: skipping MARKETPLACE_HANDLER_URL update on agent service"
+        else
+            handler_url=$(gcloud run services describe "$HANDLER_SERVICE_NAME" \
+                --region="$REGION" \
+                --project="$PROJECT_ID" \
+                --format='value(status.url)' 2>/dev/null || echo "")
+            if [[ "$ENABLE_LB_HANDLER" == "true" ]]; then
+                handler_url="https://$HANDLER_DOMAIN_NAME"
+            fi
+            if [[ -n "$handler_url" ]]; then
+                if gcloud run services describe "$SERVICE_NAME" \
+                    --region="$REGION" --project="$PROJECT_ID" &>/dev/null; then
+                    log_info "Updating agent MARKETPLACE_HANDLER_URL=$handler_url"
+                    if gcloud run services update "$SERVICE_NAME" \
+                        --region="$REGION" \
+                        --project="$PROJECT_ID" \
+                        --update-env-vars="MARKETPLACE_HANDLER_URL=$handler_url" \
+                        --quiet 2>/dev/null; then
+                        log_info "Agent env vars updated successfully"
+                    else
+                        log_warn "Could not update MARKETPLACE_HANDLER_URL. Set it manually on the agent service."
+                    fi
                 else
-                    log_warn "Could not update MARKETPLACE_HANDLER_URL. Set it manually on the agent service."
+                    log_warn "Agent service $SERVICE_NAME not found. Deploy the agent to set MARKETPLACE_HANDLER_URL."
                 fi
-            else
-                log_warn "Agent service $SERVICE_NAME not found. Deploy the agent to set MARKETPLACE_HANDLER_URL."
             fi
         fi
 
@@ -853,23 +852,31 @@ if [[ "$ENABLE_LB_AGENT" == "true" ]]; then
     log_info "Agent Load Balancer"
     log_info "=========================================="
 
-    AGENT_LB_IP=$(gcloud compute addresses describe "${LB_NAME}-agent-ip" \
-        --global --project="$PROJECT_ID" \
-        --format='value(address)' 2>/dev/null || echo "unknown")
+    if [[ "$DRY_RUN" == "true" ]]; then
+        echo ""
+        echo "  URL:         https://$AGENT_DOMAIN_NAME"
+        echo "  Static IP:   [dry-run — not available]"
+        echo "  SSL status:  [dry-run — not available]"
+        echo ""
+    else
+        AGENT_LB_IP=$(gcloud compute addresses describe "${LB_NAME}-agent-ip" \
+            --global --project="$PROJECT_ID" \
+            --format='value(address)' 2>/dev/null || echo "unknown")
 
-    AGENT_CERT_STATUS=$(gcloud compute ssl-certificates describe "${LB_NAME}-agent-cert" \
-        --global --project="$PROJECT_ID" \
-        --format='value(managed.status)' 2>/dev/null || echo "unknown")
+        AGENT_CERT_STATUS=$(gcloud compute ssl-certificates describe "${LB_NAME}-agent-cert" \
+            --global --project="$PROJECT_ID" \
+            --format='value(managed.status)' 2>/dev/null || echo "unknown")
 
-    echo ""
-    echo "  URL:         https://$AGENT_DOMAIN_NAME"
-    echo "  Static IP:   $AGENT_LB_IP"
-    echo "  SSL status:  $AGENT_CERT_STATUS"
-    echo ""
-    if [[ "$AGENT_CERT_STATUS" != "ACTIVE" ]]; then
-        log_warn "SSL certificate is not yet active (status: $AGENT_CERT_STATUS)"
-        log_warn "Ensure DNS A record points $AGENT_DOMAIN_NAME → $AGENT_LB_IP"
-        log_warn "Provisioning can take up to 60 minutes after DNS propagation."
+        echo ""
+        echo "  URL:         https://$AGENT_DOMAIN_NAME"
+        echo "  Static IP:   $AGENT_LB_IP"
+        echo "  SSL status:  $AGENT_CERT_STATUS"
+        echo ""
+        if [[ "$AGENT_CERT_STATUS" != "ACTIVE" ]]; then
+            log_warn "SSL certificate is not yet active (status: $AGENT_CERT_STATUS)"
+            log_warn "Ensure DNS A record points $AGENT_DOMAIN_NAME → $AGENT_LB_IP"
+            log_warn "Provisioning can take up to 60 minutes after DNS propagation."
+        fi
     fi
 fi
 
@@ -879,23 +886,31 @@ if [[ "$ENABLE_LB_HANDLER" == "true" ]]; then
     log_info "Handler Load Balancer"
     log_info "=========================================="
 
-    HANDLER_LB_IP=$(gcloud compute addresses describe "${LB_NAME}-handler-ip" \
-        --global --project="$PROJECT_ID" \
-        --format='value(address)' 2>/dev/null || echo "unknown")
+    if [[ "$DRY_RUN" == "true" ]]; then
+        echo ""
+        echo "  URL:         https://$HANDLER_DOMAIN_NAME"
+        echo "  Static IP:   [dry-run — not available]"
+        echo "  SSL status:  [dry-run — not available]"
+        echo ""
+    else
+        HANDLER_LB_IP=$(gcloud compute addresses describe "${LB_NAME}-handler-ip" \
+            --global --project="$PROJECT_ID" \
+            --format='value(address)' 2>/dev/null || echo "unknown")
 
-    HANDLER_CERT_STATUS=$(gcloud compute ssl-certificates describe "${LB_NAME}-handler-cert" \
-        --global --project="$PROJECT_ID" \
-        --format='value(managed.status)' 2>/dev/null || echo "unknown")
+        HANDLER_CERT_STATUS=$(gcloud compute ssl-certificates describe "${LB_NAME}-handler-cert" \
+            --global --project="$PROJECT_ID" \
+            --format='value(managed.status)' 2>/dev/null || echo "unknown")
 
-    echo ""
-    echo "  URL:         https://$HANDLER_DOMAIN_NAME"
-    echo "  Static IP:   $HANDLER_LB_IP"
-    echo "  SSL status:  $HANDLER_CERT_STATUS"
-    echo ""
-    if [[ "$HANDLER_CERT_STATUS" != "ACTIVE" ]]; then
-        log_warn "SSL certificate is not yet active (status: $HANDLER_CERT_STATUS)"
-        log_warn "Ensure DNS A record points $HANDLER_DOMAIN_NAME → $HANDLER_LB_IP"
-        log_warn "Provisioning can take up to 60 minutes after DNS propagation."
+        echo ""
+        echo "  URL:         https://$HANDLER_DOMAIN_NAME"
+        echo "  Static IP:   $HANDLER_LB_IP"
+        echo "  SSL status:  $HANDLER_CERT_STATUS"
+        echo ""
+        if [[ "$HANDLER_CERT_STATUS" != "ACTIVE" ]]; then
+            log_warn "SSL certificate is not yet active (status: $HANDLER_CERT_STATUS)"
+            log_warn "Ensure DNS A record points $HANDLER_DOMAIN_NAME → $HANDLER_LB_IP"
+            log_warn "Provisioning can take up to 60 minutes after DNS propagation."
+        fi
     fi
 fi
 

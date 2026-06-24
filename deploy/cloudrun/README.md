@@ -927,6 +927,7 @@ If the status is `PROVISIONING`, HTTPS traffic will not work yet — Google-mana
 | `--mcp-image <image>` | Container image for the MCP server (default: `gcr.io/$PROJECT_ID/red-hat-lightspeed-mcp:latest`) |
 | `--build` | Build the image(s) before deploying |
 | `--allow-unauthenticated` | Allow public access (required for A2A and Pub/Sub) |
+| `--dry-run` | Preview gcloud commands without executing them |
 
 **Service deployment:**
 

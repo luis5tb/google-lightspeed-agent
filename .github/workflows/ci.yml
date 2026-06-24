@@ -74,6 +74,7 @@ jobs:
     outputs:
       python: ${{ steps.filter.outputs.python }}
       pyproject: ${{ steps.filter.outputs.pyproject }}
+      shell: ${{ steps.filter.outputs.shell }}
     steps:
       - uses: actions/checkout@v4
       - uses: dorny/paths-filter@v3
@@ -92,6 +93,10 @@ jobs:
             pyproject:
               - 'pyproject.toml'
               - 'requirements-*.txt'
+            shell:
+              - 'deploy/cloudrun/**'
+              - 'tests/shell/**'
+              - 'Makefile'
 
   lock-file-check:
     name: Lock file verification
@@ -236,10 +241,26 @@ jobs:
           severity: 'CRITICAL,HIGH'
           exit-code: '1'
 
+  test-shell:
+    name: Shell tests
+    needs: [detect-changes]
+    if: needs.detect-changes.outputs.shell == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install bats and shellcheck
+        run: sudo apt-get update && sudo apt-get install -y bats shellcheck
+      - name: Run shellcheck
+        run: shellcheck deploy/cloudrun/*.sh
+      - name: Run shell tests
+        run: bats tests/shell/
+      - name: Check shell test coverage
+        run: bash tests/shell/check_coverage.sh
+
   ci-gate:
     name: CI Gate
     if: always()
-    needs: [konflux-verify, lock-file-check, lint, test, build, container-scan]
+    needs: [konflux-verify, lock-file-check, lint, test, build, container-scan, test-shell]
     runs-on: ubuntu-latest
     steps:
       - name: Check all jobs passed
@@ -254,8 +275,8 @@ jobs:
             echo "Lock file check failed: ${{ needs.lock-file-check.result }}"
             exit 1
           fi
-          # lint, test, build, container-scan are skipped when no Python/dependency files changed — that's expected
-          for job_result in "${{ needs.lint.result }}" "${{ needs.test.result }}" "${{ needs.build.result }}" "${{ needs.container-scan.result }}"; do
+          # lint, test, build, container-scan, test-shell are skipped when no relevant files changed — that's expected
+          for job_result in "${{ needs.lint.result }}" "${{ needs.test.result }}" "${{ needs.build.result }}" "${{ needs.container-scan.result }}" "${{ needs.test-shell.result }}"; do
             if [[ "$job_result" != "success" && "$job_result" != "skipped" ]]; then
               echo "One or more CI jobs failed or were cancelled."
               echo "  konflux-verify:  ${{ needs.konflux-verify.result }}"
@@ -264,6 +285,7 @@ jobs:
               echo "  test:            ${{ needs.test.result }}"
               echo "  build:           ${{ needs.build.result }}"
               echo "  container-scan:  ${{ needs.container-scan.result }}"
+              echo "  test-shell:      ${{ needs.test-shell.result }}"
               exit 1
             fi
           done
