@@ -137,7 +137,9 @@ def _setup_environment() -> None:
     if settings.google_genai_use_vertexai:
         if settings.google_cloud_project:
             os.environ["GOOGLE_CLOUD_PROJECT"] = settings.google_cloud_project
+            os.environ["VERTEXAI_PROJECT"] = settings.google_cloud_project
         os.environ["GOOGLE_CLOUD_LOCATION"] = settings.google_cloud_location
+        os.environ["VERTEXAI_LOCATION"] = settings.google_cloud_location
     elif settings.google_api_key:
         os.environ["GOOGLE_API_KEY"] = settings.google_api_key
 

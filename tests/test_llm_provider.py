@@ -307,6 +307,26 @@ def test_setup_environment_skips_google_application_credentials_when_not_set(mon
         get_settings.cache_clear()
 
 
+def test_setup_environment_sets_vertexai_env_vars(monkeypatch):
+    """Test that VERTEXAI_PROJECT and VERTEXAI_LOCATION are set for LiteLLM."""
+    from lightspeed_agent.core.agent import _setup_environment
+
+    monkeypatch.setenv("GOOGLE_GENAI_USE_VERTEXAI", "TRUE")
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "my-project")
+    monkeypatch.setenv("GOOGLE_CLOUD_LOCATION", "global")
+    get_settings.cache_clear()
+    try:
+        _setup_environment()
+        assert os.environ["VERTEXAI_PROJECT"] == "my-project"
+        assert os.environ["VERTEXAI_LOCATION"] == "global"
+    finally:
+        os.environ.pop("VERTEXAI_PROJECT", None)
+        os.environ.pop("VERTEXAI_LOCATION", None)
+        os.environ.pop("GOOGLE_CLOUD_PROJECT", None)
+        os.environ.pop("GOOGLE_CLOUD_LOCATION", None)
+        get_settings.cache_clear()
+
+
 def test_settings_reads_google_application_credentials_env(monkeypatch):
     monkeypatch.setenv("GOOGLE_APPLICATION_CREDENTIALS", "/opt/keys/sa.json")
     get_settings.cache_clear()
