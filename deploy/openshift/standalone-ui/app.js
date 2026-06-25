@@ -3,7 +3,7 @@
 
   const config = window.CONFIG || {
     agentUrl: "http://localhost:8000",
-    ssoIssuerUrl: "https://sso.redhat.com/auth/realms/redhat-external",
+    ssoIssuerUrl: "https://sso.stage.redhat.com/auth/realms/redhat-external",
   };
 
   let state = {
