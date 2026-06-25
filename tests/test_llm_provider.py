@@ -96,6 +96,17 @@ def test_gemini_provider_with_llm_model_override():
     assert model.model == "gemini-2.0-flash"
 
 
+def test_gemini_provider_strips_litellm_prefix():
+    s = Settings(
+        google_api_key="test-key",
+        gemini_model="gemini-2.5-flash",
+        llm_model="vertex_ai/gemini-2.5-flash",
+    )
+    model = _create_model(s)
+    assert isinstance(model, Gemini)
+    assert model.model == "gemini-2.5-flash"
+
+
 def test_gemini_provider_includes_retry_options():
     s = Settings(
         google_api_key="test-key",
