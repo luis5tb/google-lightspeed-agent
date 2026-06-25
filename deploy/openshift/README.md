@@ -885,8 +885,8 @@ spec:
     log:
       mode: console
     auth.anonymous:
-      enabled: true
-      org_role: Viewer
+      enabled: "true"
+      org_role: "Viewer"
 ```
 
 Apply it:
@@ -910,9 +910,39 @@ to the in-cluster Prometheus. The `uid` field must match
 
 The datasource connects Grafana to the built-in OpenShift Prometheus (Thanos
 Querier). This requires a service account with `cluster-monitoring-view`
-permissions — check with your cluster admin or see the
-[Grafana Operator documentation](https://grafana.github.io/grafana-operator/docs/datasources/)
-for the full setup.
+permissions.
+
+**a.** Create a service account for Grafana to authenticate with Prometheus:
+
+```yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: grafana-prometheus
+  namespace: lightspeed-agent
+```
+
+```bash
+oc apply -f grafana-sa.yaml
+```
+
+**b.** Bind the `cluster-monitoring-view` cluster role to the service account.
+This requires cluster admin privileges — if you don't have admin access, ask
+your cluster admin to run this command on your behalf:
+
+```bash
+oc adm policy add-cluster-role-to-user cluster-monitoring-view \
+  -z grafana-prometheus -n lightspeed-agent
+```
+
+**c.** Generate a long-lived token for the datasource:
+
+```bash
+oc create token grafana-prometheus -n lightspeed-agent --duration=8760h
+```
+
+**d.** Create the datasource CR, replacing `<SERVICE_ACCOUNT_TOKEN>` with the
+token from the previous step:
 
 ```yaml
 apiVersion: grafana.integreatly.org/v1beta1
@@ -938,10 +968,8 @@ spec:
       httpHeaderValue1: "Bearer <SERVICE_ACCOUNT_TOKEN>"
 ```
 
-> **Note:** The Thanos Querier requires a bearer token from a service account
-> with the `cluster-monitoring-view` role. Consult your cluster admin for the
-> token, or see the
-> [Grafana Operator documentation](https://grafana.github.io/grafana-operator/docs/datasources/).
+> **Note:** Replace `<SERVICE_ACCOUNT_TOKEN>` with the token generated in
+> step c above.
 
 Apply and verify:
 
