@@ -14,7 +14,7 @@
             "dataSets": [
               {
                 "timeSeriesQuery": {
-                  "prometheusQuery": "sum by (account_id) (input_tokens)"
+                  "prometheusQuery": "sum by (account_id) (last_over_time(input_tokens[2m]))"
                 }
               }
             ],
@@ -37,7 +37,7 @@
             "dataSets": [
               {
                 "timeSeriesQuery": {
-                  "prometheusQuery": "sum by (account_id) (output_tokens)"
+                  "prometheusQuery": "sum by (account_id) (last_over_time(output_tokens[2m]))"
                 }
               }
             ],
@@ -60,7 +60,7 @@
             "dataSets": [
               {
                 "timeSeriesQuery": {
-                  "prometheusQuery": "sum by (account_id) (request_count)"
+                  "prometheusQuery": "sum by (account_id) (last_over_time(request_count[2m]))"
                 }
               }
             ],
