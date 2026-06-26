@@ -236,6 +236,8 @@ The agent collects business-level metrics by polling the database on a configura
 
 Metrics are independent of tracing — you can enable one without the other.
 
+> **Metrics vs Service Control billing:** These OTel metrics provide operational visibility (cumulative snapshots aggregated by `account_id`) and are read-only. They are distinct from the [Service Control reporter](metering.md#google-cloud-service-control), which reports hourly usage deltas per `order_id` for Google Cloud Marketplace billing. Both read from the same `usage_records` table but serve different purposes and do not interfere with each other.
+
 ### Configuration
 
 | Variable | Default | Description |
