@@ -144,6 +144,12 @@ def _create_meter_provider(resource: Resource, settings: Any) -> MeterProvider:
             "opentelemetry-exporter-prometheus not installed, "
             "Prometheus scrape endpoint unavailable"
         )
+    except OSError as e:
+        logger.warning(
+            "Failed to start Prometheus scrape endpoint on port %d: %s",
+            settings.otel_metrics_prometheus_port,
+            e,
+        )
 
     return MeterProvider(resource=resource, metric_readers=readers)
 

@@ -599,7 +599,8 @@ steps:
   # ==========================================================================
   # DASHBOARDS PHASE - Create or update Cloud Monitoring dashboards
   # Auto-discovers all JSON files in deploy/cloudrun/dashboards/.
-  # Adding a new dashboard = adding a JSON file. No cloudbuild.yaml changes.
+  # After this initial setup, adding a new dashboard only requires
+  # dropping a JSON file in that directory — no further cloudbuild.yaml edits.
   # Requires roles/monitoring.dashboardEditor on the Cloud Build SA.
   # ==========================================================================
 
@@ -620,17 +621,19 @@ steps:
               --format='value(name)' \
               --filter="displayName=\"$$name\"" 2>/dev/null | head -1)
           if [ -n "$$existing" ]; then
-            echo "  Replacing existing dashboard: $$existing"
-            gcloud monitoring dashboards delete "$$existing" \
-                --project=${PROJECT_ID} --quiet
+            echo "  Updating existing dashboard: $$existing"
+            gcloud monitoring dashboards update "$$existing" \
+                --config-from-file="$$f" \
+                --project=${PROJECT_ID}
+          else
+            echo "  Creating dashboard: $$name"
+            gcloud monitoring dashboards create \
+                --config-from-file="$$f" \
+                --project=${PROJECT_ID}
           fi
-          echo "  Creating dashboard: $$name"
-          gcloud monitoring dashboards create \
-              --config-from-file="$$f" \
-              --project=${PROJECT_ID}
         done
         echo "Dashboard deployment complete."
-    waitFor: ['deploy-agent']
+    waitFor: ['deploy-agent', 'deploy-handler']
 
 images:
   - 'gcr.io/${PROJECT_ID}/${_SERVICE_NAME}:${_IMAGE_TAG}'

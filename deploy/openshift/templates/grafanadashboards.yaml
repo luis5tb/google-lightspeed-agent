@@ -47,7 +47,7 @@ spec:
           },
           "targets": [
             {
-              "expr": "sum by (tool_name) (tool_calls_by_name_total{job=\"{{ $job }}\"})",
+              "expr": "sum by (tool_name) (tool_calls_by_name_total{job=\"{{ $job }}\", service_name=\"{{ $svc }}\"})",
               "legendFormat": "{{`{{tool_name}}`}}",
               "refId": "A",
               "instant": true
@@ -80,7 +80,7 @@ spec:
           "timeFrom": "7d",
           "targets": [
             {
-              "expr": "sum(increase(request_count{job=\"{{ $job }}\"}[1d]))",
+              "expr": "sum(increase(request_count{job=\"{{ $job }}\", service_name=\"{{ $svc }}\"}[1d]))",
               "legendFormat": "Requests",
               "refId": "A",
               "interval": "1d"
@@ -122,13 +122,13 @@ spec:
           "timeFrom": "7d",
           "targets": [
             {
-              "expr": "sum(increase(input_tokens{job=\"{{ $job }}\"}[1d]))",
+              "expr": "sum(increase(input_tokens{job=\"{{ $job }}\", service_name=\"{{ $svc }}\"}[1d]))",
               "legendFormat": "Input Tokens",
               "refId": "A",
               "interval": "1d"
             },
             {
-              "expr": "sum(increase(output_tokens{job=\"{{ $job }}\"}[1d]))",
+              "expr": "sum(increase(output_tokens{job=\"{{ $job }}\", service_name=\"{{ $svc }}\"}[1d]))",
               "legendFormat": "Output Tokens",
               "refId": "B",
               "interval": "1d"
@@ -211,19 +211,19 @@ spec:
           ],
           "targets": [
             {
-              "expr": "sum by (account_id) (subscriptions_count{job=\"{{ $job }}\", state=\"active\"})",
+              "expr": "sum by (account_id) (subscriptions_count{job=\"{{ $job }}\", service_name=\"{{ $svc }}\", state=\"active\"})",
               "refId": "Active",
               "format": "table",
               "instant": true
             },
             {
-              "expr": "sum by (account_id) (subscriptions_count{job=\"{{ $job }}\", state=\"cancelled\"})",
+              "expr": "sum by (account_id) (subscriptions_count{job=\"{{ $job }}\", service_name=\"{{ $svc }}\", state=\"cancelled\"})",
               "refId": "Cancelled",
               "format": "table",
               "instant": true
             },
             {
-              "expr": "sum by (account_id) (subscriptions_count{job=\"{{ $job }}\", state=\"pending_approval\"})",
+              "expr": "sum by (account_id) (subscriptions_count{job=\"{{ $job }}\", service_name=\"{{ $svc }}\", state=\"pending_approval\"})",
               "refId": "Pending",
               "format": "table",
               "instant": true
@@ -262,7 +262,7 @@ spec:
           ],
           "targets": [
             {
-              "expr": "sum by (account_id) (dcr_clients_active{job=\"{{ $job }}\"})",
+              "expr": "sum by (account_id) (dcr_clients_active{job=\"{{ $job }}\", service_name=\"{{ $svc }}\"})",
               "refId": "A",
               "format": "table",
               "instant": true
@@ -324,7 +324,7 @@ spec:
           },
           "targets": [
             {
-              "expr": "sum by (account_id) (input_tokens{job=\"{{ $job }}\"})",
+              "expr": "sum by (account_id) (input_tokens{job=\"{{ $job }}\", service_name=\"{{ $svc }}\"})",
               "legendFormat": "{{`{{account_id}}`}}",
               "refId": "A",
               "instant": true
@@ -355,7 +355,7 @@ spec:
           },
           "targets": [
             {
-              "expr": "sum by (account_id) (output_tokens{job=\"{{ $job }}\"})",
+              "expr": "sum by (account_id) (output_tokens{job=\"{{ $job }}\", service_name=\"{{ $svc }}\"})",
               "legendFormat": "{{`{{account_id}}`}}",
               "refId": "A",
               "instant": true
@@ -386,7 +386,7 @@ spec:
           },
           "targets": [
             {
-              "expr": "sum by (account_id) (request_count{job=\"{{ $job }}\"})",
+              "expr": "sum by (account_id) (request_count{job=\"{{ $job }}\", service_name=\"{{ $svc }}\"})",
               "legendFormat": "{{`{{account_id}}`}}",
               "refId": "A",
               "instant": true

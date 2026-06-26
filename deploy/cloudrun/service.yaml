@@ -172,7 +172,11 @@ spec:
               value: "60"
             - name: RATE_LIMIT_REQUESTS_PER_HOUR
               value: "1000"
-            # OpenTelemetry Metrics
+            # OpenTelemetry
+            # Service name used as a resource attribute on all metrics/traces.
+            # Must be unique per agent in multi-agent deployments.
+            - name: OTEL_SERVICE_NAME
+              value: "lightspeed_agent"
             # The OTel Collector sidecar receives OTLP on localhost:4317
             # and exports metrics to Cloud Monitoring.
             - name: OTEL_METRICS_ENABLED
@@ -266,6 +270,13 @@ spec:
               port: 13133
             periodSeconds: 30
             failureThreshold: 3
+          resources:
+            requests:
+              cpu: "100m"
+              memory: 64Mi
+            limits:
+              cpu: "250m"
+              memory: 256Mi
       volumes:
         - name: redis-ca-cert
           secret:
