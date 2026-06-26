@@ -1,10 +1,11 @@
 ---
 name: multi-step-workflows
 description: |
-  Guides multi-step tool chaining and common filter parameters for
-  Inventory, Vulnerability, and Advisor tools. Enables the agent to
-  combine information from multiple tools to answer complex queries
-  instead of giving up after a single call. [PREFERRED]
+  Answering complex questions that require combining multiple tools or
+  chaining calls across Inventory, Vulnerability, and Advisor APIs. Use
+  this skill when a user question cannot be answered with a single tool
+  call — e.g. correlating hosts with CVEs, filtering advisories by
+  system, or joining data across Red Hat Insights services. [PREFERRED]
 metadata:
   author: red-hat
   version: "1.0"

@@ -1,9 +1,11 @@
 ---
 name: response-formatting
 description: |
-  Defines the agent's capabilities reference and response style including
-  output formatting rules for CVE lists, host inventories, advisor
-  recommendations, and mixed results. [GUIDANCE]
+  Formatting and presenting results for CVE lists, host inventories,
+  advisor recommendations, and mixed-resource responses. Use this skill
+  when composing a user-facing answer that includes structured data —
+  tables, severity summaries, system counts, or recommendation lists
+  from Red Hat Insights. [GUIDANCE]
 metadata:
   author: red-hat
   version: "1.0"

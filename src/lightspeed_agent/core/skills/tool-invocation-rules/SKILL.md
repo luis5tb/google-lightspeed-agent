@@ -1,9 +1,10 @@
 ---
 name: tool-invocation-rules
 description: |
-  Extends the base tool invocation format with examples of correct vs.
-  incorrect invocations, argument formatting guidance, schema lookup
-  procedures, and edge cases for unknown tools. [STRICT]
+  Correct syntax and argument formatting for calling Red Hat Insights
+  MCP tools. Use this skill when invoking a tool for the first time,
+  when unsure about argument format or required parameters, or when a
+  tool call was rejected due to malformed input. [STRICT]
 metadata:
   author: red-hat
   version: "1.1"

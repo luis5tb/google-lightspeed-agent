@@ -1,10 +1,11 @@
 ---
 name: efficient-counting
 description: |
-  Answers total/count/"how many?" queries for any resource — CVEs, hosts,
-  advisory rules, blueprints, subscriptions, or content sources — with a
-  single API call using limit=1 and response metadata instead of fetching
-  all pages. [PREFERRED]
+  Answering "how many" and total-count questions for CVEs, hosts, advisory
+  rules, blueprints, subscriptions, or content sources. Use this skill
+  when the user asks for a count, total, or number of any resource —
+  provides the efficient single-call approach instead of fetching all
+  pages. [PREFERRED]
 metadata:
   author: red-hat
   version: "1.0"

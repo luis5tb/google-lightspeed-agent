@@ -1,10 +1,11 @@
 ---
 name: guardrails-safety
 description: |
-  Extends the base guardrails with detailed examples, edge cases, and
-  severity-interpretation rules. Covers scope edge cases, prompt-injection
-  patterns to recognize, data-integrity examples, and CVE severity context
-  (advisor vs. vulnerability). [STRICT]
+  Scope boundaries, safety rules, and severity interpretation for Red Hat
+  Insights queries. Use this skill when the user request touches edge
+  cases around what the agent can or cannot answer, when prompt-injection
+  is suspected, when data integrity must be preserved, or when CVE
+  severity needs context (advisor vs. vulnerability). [STRICT]
 metadata:
   author: red-hat
   version: "1.1"

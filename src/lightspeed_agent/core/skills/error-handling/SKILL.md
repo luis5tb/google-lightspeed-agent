@@ -1,10 +1,10 @@
 ---
 name: error-handling
 description: |
-  Handles oversized tool results and tool errors gracefully. Teaches the
-  agent to retry with narrower queries on oversized responses and to
-  interpret HTTP status codes correctly instead of silently swallowing
-  failures. [PREFERRED]
+  Recovering from tool call failures, oversized responses, and HTTP errors.
+  Use this skill when a tool call returns an error, times out, returns
+  too much data, or produces an unexpected HTTP status code. Covers retry
+  strategies, narrowing queries, and interpreting error codes. [PREFERRED]
 metadata:
   author: red-hat
   version: "1.0"

@@ -1,10 +1,11 @@
 ---
 name: pagination-handling
 description: |
-  Teaches the agent how to handle paginated API responses correctly.
-  Covers default fetch behavior, pagination metadata interpretation,
-  stop conditions, and per-API pagination conventions for Vulnerability,
-  Inventory, Advisor, and other tool categories. [PREFERRED]
+  Navigating paginated results from Vulnerability, Inventory, Advisor,
+  and other Red Hat Insights APIs. Use this skill when a response
+  contains pagination metadata (offset, limit, total), when results
+  are truncated, or when the user asks for a full list that may span
+  multiple pages. [PREFERRED]
 metadata:
   author: red-hat
   version: "1.0"
