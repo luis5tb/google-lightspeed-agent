@@ -621,16 +621,14 @@ steps:
               --format='value(name)' \
               --filter="displayName=\"$$name\"" 2>/dev/null | head -1)
           if [ -n "$$existing" ]; then
-            echo "  Updating existing dashboard: $$existing"
-            gcloud monitoring dashboards update "$$existing" \
-                --config-from-file="$$f" \
-                --project=${PROJECT_ID}
-          else
-            echo "  Creating dashboard: $$name"
-            gcloud monitoring dashboards create \
-                --config-from-file="$$f" \
-                --project=${PROJECT_ID}
+            echo "  Replacing existing dashboard: $$existing"
+            gcloud monitoring dashboards delete "$$existing" \
+                --project=${PROJECT_ID} --quiet
           fi
+          echo "  Creating dashboard: $$name"
+          gcloud monitoring dashboards create \
+              --config-from-file="$$f" \
+              --project=${PROJECT_ID}
         done
         echo "Dashboard deployment complete."
     waitFor: ['deploy-agent', 'deploy-handler']

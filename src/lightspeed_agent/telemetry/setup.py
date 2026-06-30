@@ -145,7 +145,7 @@ def _create_meter_provider(resource: Resource, settings: Any) -> MeterProvider:
             "Prometheus scrape endpoint unavailable"
         )
     except OSError as e:
-        logger.warning(
+        logger.error(
             "Failed to start Prometheus scrape endpoint on port %d: %s",
             settings.otel_metrics_prometheus_port,
             e,
