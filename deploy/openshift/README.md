@@ -623,7 +623,10 @@ OAuth2 client registration, and Envoy mTLS — no agent code changes required.
 - The agent Deployment is labeled with `kagenti.io/type: agent`,
   `protocol.kagenti.io/a2a: ""`, and `kagenti.io/framework`
 - An `AgentRuntime` CR is created, enrolling the agent in the Kagenti platform
-- OpenTelemetry is automatically enabled and pointed at Kagenti's OTEL collector
+- OpenTelemetry **tracing** is automatically enabled and pointed at Kagenti's
+  OTEL collector. Note that Prometheus metrics (`otel.metricsEnabled`) remain
+  independent — if you want both Kagenti tracing and Prometheus scraping, set
+  `kagenti.enabled: true` **and** `otel.metricsEnabled: true` in your values.
 - The Kagenti operator will:
   - Inject 3 sidecars (SPIFFE helper, Keycloak registration, Envoy proxy)
   - Auto-create an `AgentCard` CR for A2A discovery
