@@ -66,6 +66,14 @@ make logs                              # Agent logs
 make help                              # List all available targets
 ```
 
+### GitOps Deployment (ArgoCD)
+
+PR-based deployments via OpenShift GitOps (ArgoCD). Change image tags or config, merge, and ArgoCD auto-syncs.
+
+- `deploy/gitops/openshift/` — ArgoCD Application for OpenShift (syncs existing Helm chart)
+- `deploy/gitops/google-cloud/` — Helm chart that triggers Cloud Build for Cloud Run deployment
+- See `deploy/gitops/README.md` for setup, prerequisites (ESO operator), and workflows
+
 ### Shell Tests (deploy.sh)
 
 Changes to `deploy/cloudrun/deploy.sh` must include test updates in `tests/shell/`. CI enforces that every function in `deploy.sh` is referenced in the bats tests.
