@@ -10,6 +10,11 @@ ArgoCD-managed deployments for the Red Hat Lightspeed Agent. This directory cont
 ```
 deploy/gitops/
 ├── README.md
+├── setup/                       # Prerequisite installation scripts
+│   ├── README.md                # Setup instructions and manual alternatives
+│   ├── install-gitops-operator.sh
+│   ├── install-eso-operator.sh
+│   └── setup-gcp-sa.sh
 ├── openshift/
 │   ├── application.yaml        # ArgoCD Application CR (multi-source)
 │   └── values-override.yaml    # Environment-specific Helm value overrides
@@ -34,6 +39,8 @@ deploy/gitops/
 - OpenShift cluster with ArgoCD (OpenShift GitOps operator) installed
 - External Secrets Operator installed (OperatorHub > "external-secrets-operator") — for the Google Cloud target
 - For Google Cloud target: a GCP service account key with Cloud Build, Secret Manager, and Cloud Run permissions
+
+Setup scripts are provided in `setup/` to automate these prerequisites. See [`setup/README.md`](setup/README.md) for details, environment variables, and manual alternatives.
 
 ## OpenShift Target
 
