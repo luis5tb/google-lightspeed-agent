@@ -1,0 +1,30 @@
+# Environment-specific overrides for the lightspeed-agent Helm chart.
+# Only values that differ from deploy/openshift/values.yaml belong here.
+#
+# Secrets are managed externally (SealedSecrets, ExternalSecrets, or Vault),
+# not by the chart — secrets.create is set to false below.
+
+# -- Image tags: the primary values updated per PR / release --
+agent:
+  image:
+    tag: latest
+  providerUrl: "https://lightspeed-agent.apps.example.com"
+
+mcp:
+  image:
+    tag: latest
+
+handler:
+  image:
+    tag: latest
+
+standaloneUI:
+  image:
+    tag: latest
+
+# -- Deployment mode --
+deploymentMode: hybrid
+
+# -- Secrets managed externally --
+secrets:
+  create: false

@@ -1,0 +1,51 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  # Change this name per environment (e.g., lightspeed-agent-staging, lightspeed-agent-prod)
+  name: lightspeed-agent
+  namespace: openshift-gitops
+  labels:
+    app.kubernetes.io/part-of: lightspeed-agent
+    app.kubernetes.io/managed-by: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  sources:
+    # Values source — gitops overrides (image tags, config)
+    - repoURL: https://github.com/redhat-ai-tools/google-lightspeed-agent.git
+      targetRevision: main
+      ref: values
+    # Helm chart source
+    - repoURL: https://github.com/redhat-ai-tools/google-lightspeed-agent.git
+      targetRevision: main
+      path: deploy/openshift
+      helm:
+        valueFiles:
+          - values.yaml
+          - $values/deploy/gitops/openshift/values-override.yaml
+  destination:
+    # ArgoCD cluster reference — "in-cluster" for the local OpenShift cluster
+    server: https://kubernetes.default.svc
+    # Target namespace for all chart resources
+    namespace: lightspeed-agent
+  syncPolicy:
+    automated:
+      selfHeal: true
+      prune: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - RespectIgnoreDifferences=true
+    retry:
+      limit: 3
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 3m
+  ignoreDifferences:
+    # Routes get annotations added by the ingress controller
+    - group: route.openshift.io
+      kind: Route
+      jsonPointers:
+        - /spec/host
