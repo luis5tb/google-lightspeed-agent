@@ -1,0 +1,26 @@
+# Example environment-specific overrides.
+# Rename this file for your environment (e.g., values-staging.yaml, values-production.yaml).
+
+project:
+  id: my-gcp-project-id
+
+images:
+  agent:
+    tag: v1.2.3
+  handler:
+    tag: v1.2.3
+  mcp:
+    tag: "20260701"
+
+loadBalancer:
+  agent:
+    enabled: "true"
+    domain: agent.example.com
+  handler:
+    enabled: "true"
+    domain: dcr.example.com
+
+deploy:
+  gitBranch: release/v1.2
+  # Uncomment for private repositories:
+  # gitTokenSecret: git-credentials

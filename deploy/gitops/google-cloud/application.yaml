@@ -1,0 +1,43 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: lightspeed-agent-gcp
+  namespace: openshift-gitops
+  labels:
+    app.kubernetes.io/part-of: lightspeed-agent
+    app.kubernetes.io/managed-by: argocd
+    app.kubernetes.io/component: gcp-deploy
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  sources:
+    # Values source — gitops overrides
+    - repoURL: https://github.com/redhat-ai-tools/google-lightspeed-agent.git
+      targetRevision: main
+      ref: values
+    # Helm chart source
+    - repoURL: https://github.com/redhat-ai-tools/google-lightspeed-agent.git
+      targetRevision: main
+      path: deploy/gitops/google-cloud
+      helm:
+        valueFiles:
+          - values.yaml
+          - $values/deploy/gitops/google-cloud/values-override.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: lightspeed-agent-gcp
+  syncPolicy:
+    automated:
+      selfHeal: true
+      prune: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - RespectIgnoreDifferences=true
+    retry:
+      limit: 3
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 3m
