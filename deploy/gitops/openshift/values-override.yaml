@@ -1,13 +1,12 @@
 # Environment-specific overrides for the lightspeed-agent Helm chart.
 # Only values that differ from deploy/openshift/values.yaml belong here.
-#
-# Secrets are managed externally (SealedSecrets, ExternalSecrets, or Vault),
-# not by the chart — secrets.create is set to false below.
 
-# -- Image tags: the primary values updated per PR / release --
+# Container image tags — the primary values updated per PR / release.
+# Images are pulled directly from Quay.io by the OpenShift cluster.
 agent:
   image:
     tag: latest
+  # Public URL where the agent Route is exposed on this cluster
   providerUrl: "https://lightspeed-agent.apps.example.com"
 
 mcp:
@@ -22,9 +21,12 @@ standaloneUI:
   image:
     tag: latest
 
-# -- Deployment mode --
+# Deployment mode:
+#   hybrid     — Agent on OpenShift, marketplace handler stays on GCP (Cloud Run)
+#   standalone — Everything on OpenShift (agent + handler + UI)
 deploymentMode: hybrid
 
-# -- Secrets managed externally --
+# Secrets are managed externally (SealedSecrets, ExternalSecrets, or Vault),
+# not by the chart.
 secrets:
   create: false
