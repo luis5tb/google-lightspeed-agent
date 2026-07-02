@@ -257,7 +257,6 @@ def create_agent() -> LlmAgent:
     if skill_toolset:
         tools.append(skill_toolset)
 
-    instruction = AGENT_INSTRUCTION
     if settings.a2ui_enabled:
         try:
             from a2ui.adk.send_a2ui_to_client_toolset import SendA2uiToClientToolset
@@ -274,14 +273,14 @@ def create_agent() -> LlmAgent:
             )
             tools.append(a2ui_toolset)
             logger.info("A2UI enabled: SendA2uiToClientToolset added with Insights examples")
-        except Exception as e:
-            logger.warning(f"Failed to initialize A2UI toolset: {e}")
+        except Exception:
+            logger.warning("Failed to initialize A2UI toolset", exc_info=True)
 
     return LlmAgent(
         name=settings.agent_name,
         model=model,
         description=settings.agent_description,
-        static_instruction=instruction,
+        static_instruction=AGENT_INSTRUCTION,
         tools=tools,
         planner=PlanReActPlanner(),
     )
