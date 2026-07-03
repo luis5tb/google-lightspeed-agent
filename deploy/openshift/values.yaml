@@ -124,22 +124,25 @@ mcpGateway:
   toolPrefix: "redhat_lightspeed_"
 
 # ---------------------------------------------------------------------------
-# Kagenti — Agent Identity & Monitoring (Red Hat AI)
+# OpenShell — Sandboxed Agent Execution (NVIDIA)
 # ---------------------------------------------------------------------------
-# When enabled, the agent Deployment is labeled for Kagenti discovery and
-# an AgentRuntime CR is created to enroll the agent in the Kagenti platform.
-# The Kagenti operator will inject identity sidecars (SPIFFE, Keycloak, Envoy)
-# and auto-create an AgentCard for A2A discovery.
-kagenti:
+# When enabled, a SandboxTemplate CR is created so the OpenShell gateway can
+# spawn sandboxed instances of this agent via the kubernetes-sigs/agent-sandbox
+# CRD controller. The agent Deployment is labeled for OpenShell discovery.
+# A NetworkPolicy allows connectivity from the OpenShell gateway namespace.
+openshell:
   enabled: false
-  # SPIFFE trust domain for agent identity
-  trustDomain: "example.com"
-  # Agent framework identifier (informational label)
-  framework: "google-adk"
-  # OpenTelemetry trace endpoint (Kagenti's OTEL collector)
-  traceEndpoint: "otel-collector.kagenti-system.svc.cluster.local:4318"
-  traceProtocol: "http"
-  traceSamplingRate: "1.0"
+  # Namespace where the OpenShell gateway is deployed
+  gatewayNamespace: "openshell"
+  # Sandbox container image (empty = use agent image)
+  sandboxImage: ""
+  # Sandbox shutdown policy: "Delete" removes the Sandbox CR on expiry,
+  # "Retain" keeps it for debugging.
+  shutdownPolicy: "Retain"
+  # Network policy management for sandbox pods:
+  # "Managed" — the controller creates per-sandbox NetworkPolicies
+  # "Unmanaged" — no automatic NetworkPolicy for sandbox pods
+  networkPolicyManagement: "Managed"
 
 # ---------------------------------------------------------------------------
 # LLM Provider (alternative models via LiteLLM)

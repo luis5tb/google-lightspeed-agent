@@ -123,18 +123,16 @@ independently.
 | **MCP Gateway** | `mcpGateway.enabled` | Red Hat Connectivity Link Operator (includes Kuadrant + MCP Gateway) | Connectivity Link 1.3+ |
 | | | Istio / OpenShift Service Mesh (for Envoy ext_proc) | — |
 | | | Gateway API CRDs (`gateway.networking.k8s.io/v1`) | OpenShift 4.19+ ships these by default |
-| **Kagenti** | `kagenti.enabled` | Kagenti Operator (`kagenti-operator` Helm chart) | v0.2.0-alpha+ |
-| | | SPIRE server (for SPIFFE workload identity) | — |
-| | | Keycloak (for OAuth2 client registration) | — |
-| | | Istio Ambient mesh (for mTLS) | — |
+| **OpenShell** | `openshell.enabled` | OpenShell gateway Helm chart (`oci://ghcr.io/nvidia/openshell/helm-chart`) | 0.6.0+ |
+| | | kubernetes-sigs/agent-sandbox CRDs (`agents.x-k8s.io/v1beta1`) | v0.1.0+ |
+| | | Privileged SCC for `openshell-sandbox` service account | — |
 | **Model as a Service** | `modelService.enabled` | OpenShift AI with MaaS capability (`modelsAsService: Managed`) | OpenShift AI 3.4+ |
 | | | *or* any external OpenAI-compatible gateway (LiteLLM, Portkey, etc.) | — |
 
-> **Note:** MCP Gateway and Kagenti share underlying infrastructure (Istio,
-> Gateway API, Kuadrant). If you are deploying both, the shared components only
-> need to be installed once. See the
-> [Kagenti installation guide](https://github.com/kagenti/kagenti) for a
-> single-command setup that includes all dependencies.
+> **Note:** MCP Gateway and OpenShell can coexist on the same cluster. MCP Gateway
+> requires Istio / Gateway API / Kuadrant; OpenShell requires the agent-sandbox
+> CRDs and the OpenShell gateway Helm chart. They share no infrastructure
+> dependencies with each other.
 
 ## Deployment — Hybrid Mode
 
@@ -606,65 +604,75 @@ are required for this flow to work.
 
 > **Warning — Kuadrant AuthPolicy**: If you add a Kuadrant `AuthPolicy` to the
 > MCP HTTPRoute, ensure it validates Red Hat SSO JWTs (issuer:
-> `sso.redhat.com`), **not** Keycloak/Kagenti tokens. An AuthPolicy configured
-> for the wrong issuer will reject the user's JWT and break MCP tool calls.
-> When Kagenti is enabled, agent identity is already verified by Istio mTLS —
-> a gateway-level AuthPolicy for the user JWT is optional (defense-in-depth),
-> not required.
+> `sso.redhat.com`). An AuthPolicy configured for the wrong issuer will reject
+> the user's JWT and break MCP tool calls.
 
-### Kagenti (`kagenti.enabled: true`)
+### OpenShell (`openshell.enabled: true`)
 
-Enrolls the agent in the [Kagenti](https://github.com/kagenti/kagenti) platform
-for agent identity management, A2A discovery, and observability. The Kagenti
-operator automatically injects sidecars for SPIFFE workload identity, Keycloak
-OAuth2 client registration, and Envoy mTLS — no agent code changes required.
+Registers the agent with [OpenShell](https://github.com/NVIDIA/openshell),
+NVIDIA's sandboxed execution platform for AI agents. When enabled, a
+`SandboxTemplate` CR is created so the OpenShell gateway can spawn sandboxed
+instances of this agent via the
+[kubernetes-sigs/agent-sandbox](https://github.com/kubernetes-sigs/agent-sandbox)
+CRD controller. Sandbox pods run in isolated containers with policy-enforced
+filesystem, network, process, and inference constraints.
 
 **What changes:**
-- The agent Deployment is labeled with `kagenti.io/type: agent`,
-  `protocol.kagenti.io/a2a: ""`, and `kagenti.io/framework`
-- An `AgentRuntime` CR is created, enrolling the agent in the Kagenti platform
-- OpenTelemetry **tracing** is automatically enabled and pointed at Kagenti's
-  OTEL collector. Note that Prometheus metrics (`otel.metricsEnabled`) remain
-  independent — if you want both Kagenti tracing and Prometheus scraping, set
-  `kagenti.enabled: true` **and** `otel.metricsEnabled: true` in your values.
-- The Kagenti operator will:
-  - Inject 3 sidecars (SPIFFE helper, Keycloak registration, Envoy proxy)
-  - Auto-create an `AgentCard` CR for A2A discovery
-  - Assign a SPIFFE identity: `spiffe://<trustDomain>/ns/<namespace>/sa/<serviceAccount>`
+- The agent Deployment is labeled with `openshell.nvidia.com/sandbox-template`
+  to associate it with its SandboxTemplate
+- A `SandboxTemplate` CR (`agents.x-k8s.io/v1beta1`) is created, defining how
+  sandboxed instances of the agent should be provisioned (image, env, ports)
+- The sandbox template uses GCP service account credentials
+  (`GOOGLE_APPLICATION_CREDENTIALS`) instead of an API key for authentication
+- A NetworkPolicy allows ingress from the OpenShell gateway namespace to the
+  agent pod
 
 **Prerequisites:**
-1. Kagenti Operator installed (`kagenti-system` namespace)
-2. SPIRE server deployed and configured
-3. Keycloak instance with `keycloak-admin-secret` in the agent namespace
-4. Istio Ambient mesh enabled for mTLS
+1. kubernetes-sigs/agent-sandbox CRDs installed on the cluster:
+   ```bash
+   kubectl apply -f https://github.com/kubernetes-sigs/agent-sandbox/releases/latest/download/manifest.yaml
+   kubectl apply -f https://github.com/kubernetes-sigs/agent-sandbox/releases/latest/download/extensions.yaml
+   ```
+2. OpenShell gateway deployed via its Helm chart:
+   ```bash
+   oc create ns openshell
+   oc adm policy add-scc-to-user privileged -z openshell-sandbox -n openshell
+   helm install openshell oci://ghcr.io/nvidia/openshell/helm-chart \
+     --namespace openshell \
+     --set server.disableTls=true \
+     --set podSecurityContext.fsGroup=null \
+     --set securityContext.runAsUser=null
+   ```
+3. Privileged SCC granted to `openshell-sandbox` SA in the agent namespace:
+   ```bash
+   oc adm policy add-scc-to-user privileged -z openshell-sandbox -n lightspeed-agent
+   ```
 
 **Configuration:**
 
 ```yaml
-kagenti:
+openshell:
   enabled: true
-  trustDomain: "cluster.local"                    # SPIFFE trust domain
-  framework: "google-adk"                         # framework identifier (informational)
-  traceEndpoint: "otel-collector.kagenti-system.svc.cluster.local:4318"
-  traceProtocol: "http"
-  traceSamplingRate: "1.0"
+  gatewayNamespace: "openshell"          # namespace of the OpenShell gateway
+  sandboxImage: ""                       # empty = use agent image
+  shutdownPolicy: "Retain"              # "Delete" or "Retain"
+  networkPolicyManagement: "Managed"    # "Managed" or "Unmanaged"
 ```
 
 **Verification:**
 
 ```bash
-# Check AgentRuntime CR
-oc get agentruntime -n lightspeed-agent
+# Check SandboxTemplate was created
+oc get sandboxtemplates -n lightspeed-agent
 
-# Verify AgentCard was auto-created
-oc get agentcards -n lightspeed-agent
+# Verify the agent Deployment has the OpenShell label
+oc get deployment -l openshell.nvidia.com/sandbox-template -n lightspeed-agent
 
-# Confirm sidecars were injected (expect 4+ containers in the agent pod)
-oc get pod -l app.kubernetes.io/component=agent -n lightspeed-agent \
-  -o jsonpath='{.items[0].spec.containers[*].name}'
+# Verify NetworkPolicy for OpenShell gateway connectivity
+oc get networkpolicy -n lightspeed-agent | grep openshell
 
-# Test A2A discovery
-curl -sk https://${AGENT_HOST}/.well-known/agent.json | python -m json.tool
+# Check OpenShell gateway can see the agent namespace
+openshell status
 ```
 
 ### Model as a Service (`modelService.enabled: true`)
@@ -747,7 +755,7 @@ oc exec -n lightspeed-agent "${AGENT_POD}" -c lightspeed-agent -- \
 
 ### Enabling All Three Together
 
-For a full Red Hat AI stack deployment:
+For a full stack deployment with all optional integrations:
 
 ```yaml
 # my-values.yaml
@@ -757,9 +765,9 @@ mcpGateway:
   gatewayNamespace: "gateway-system"
   url: "http://mcp-gateway.gateway-system.svc.cluster.local:8080/mcp"
 
-kagenti:
+openshell:
   enabled: true
-  trustDomain: "cluster.local"
+  gatewayNamespace: "openshell"
 
 modelService:
   enabled: true
@@ -943,16 +951,15 @@ The service account key is mounted into the agent container and `GOOGLE_APPLICAT
 | `mcpGateway.url` | MCP Gateway endpoint URL (agent connects here) | `http://mcp-gateway.gateway-system.svc.cluster.local:8080/mcp` |
 | `mcpGateway.toolPrefix` | Prefix added to tool names (prevents collisions when multiple MCP servers are federated) | `redhat_lightspeed_` |
 
-### Kagenti (Red Hat AI)
+### OpenShell (NVIDIA)
 
 | Value | Description | Default |
 |---|---|---|
-| `kagenti.enabled` | Enable Kagenti agent identity and monitoring | `false` |
-| `kagenti.trustDomain` | SPIFFE trust domain for agent identity | `example.com` |
-| `kagenti.framework` | Agent framework identifier (informational label) | `google-adk` |
-| `kagenti.traceEndpoint` | Kagenti OTEL collector endpoint (host:port) | `otel-collector.kagenti-system.svc.cluster.local:4318` |
-| `kagenti.traceProtocol` | OTEL export protocol | `http` |
-| `kagenti.traceSamplingRate` | Trace sampling rate (0.0–1.0) | `1.0` |
+| `openshell.enabled` | Create a SandboxTemplate and register with OpenShell | `false` |
+| `openshell.gatewayNamespace` | Namespace where the OpenShell gateway is deployed | `openshell` |
+| `openshell.sandboxImage` | Sandbox container image (empty = agent image) | `""` |
+| `openshell.shutdownPolicy` | Sandbox expiry behavior (`Delete` or `Retain`) | `Retain` |
+| `openshell.networkPolicyManagement` | NetworkPolicy management for sandbox pods (`Managed` or `Unmanaged`) | `Managed` |
 
 ### Model as a Service (Red Hat AI)
 

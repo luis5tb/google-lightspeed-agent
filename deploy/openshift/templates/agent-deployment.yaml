@@ -5,10 +5,8 @@ metadata:
   labels:
     {{- include "lightspeed-agent.labels" . | nindent 4 }}
     app.kubernetes.io/component: agent
-    {{- if .Values.kagenti.enabled }}
-    kagenti.io/type: agent
-    protocol.kagenti.io/a2a: ""
-    kagenti.io/framework: {{ .Values.kagenti.framework | quote }}
+    {{- if .Values.openshell.enabled }}
+    openshell.nvidia.com/sandbox-template: {{ include "lightspeed-agent.fullname" . }}
     {{- end }}
 spec:
   replicas: {{ .Values.agent.replicas }}
@@ -19,10 +17,8 @@ spec:
     metadata:
       labels:
         {{- include "lightspeed-agent.agentSelectorLabels" . | nindent 8 }}
-        {{- if .Values.kagenti.enabled }}
-        kagenti.io/type: agent
-        protocol.kagenti.io/a2a: ""
-        kagenti.io/framework: {{ .Values.kagenti.framework | quote }}
+        {{- if .Values.openshell.enabled }}
+        openshell.nvidia.com/sandbox-template: {{ include "lightspeed-agent.fullname" . }}
         {{- end }}
       annotations:
         checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
