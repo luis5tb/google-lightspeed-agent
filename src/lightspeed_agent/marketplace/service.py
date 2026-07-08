@@ -519,6 +519,11 @@ class ProcurementService:
                 "Entitlement %s not found in Procurement API (404)",
                 entitlement_id,
             )
+        elif response.status_code >= 500:
+            raise RuntimeError(
+                f"Server error resolving account for entitlement {entitlement_id}: "
+                f"HTTP {response.status_code} — {response.text}"
+            )
         else:
             logger.warning(
                 "Failed to fetch entitlement %s: HTTP %s — %s",

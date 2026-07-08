@@ -376,6 +376,31 @@ class TestProcurementService:
     # --- _resolve_account_id tests ---
 
     @pytest.mark.asyncio
+    async def test_resolve_account_id_raises_on_5xx(self, service):
+        """Test _resolve_account_id raises RuntimeError on 5xx server errors."""
+        event = ProcurementEvent(
+            event_id="event-1",
+            event_type=ProcurementEventType.ENTITLEMENT_CREATION_REQUESTED,
+            provider_id="provider-1",
+            entitlement=EntitlementInfo(id="order-1"),
+        )
+
+        mock_response = httpx.Response(
+            status_code=500,
+            text="Internal Server Error",
+            request=httpx.Request("GET", "https://example.com"),
+        )
+        with (
+            patch.object(service, "_settings") as mock_settings,
+            patch.object(service, "_get_auth_headers", return_value={}),
+            patch("httpx.AsyncClient.get", new_callable=AsyncMock, return_value=mock_response),
+        ):
+            mock_settings.google_cloud_project = "test-project"
+            mock_settings.skip_pubsub_oidc_verification = False
+            with pytest.raises(RuntimeError, match="Server error resolving account"):
+                await service._resolve_account_id("order-1", event)
+
+    @pytest.mark.asyncio
     async def test_resolve_account_id_from_event(self, service):
         """Test _resolve_account_id returns account ID from event payload."""
         event = ProcurementEvent(
