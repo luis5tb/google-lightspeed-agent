@@ -373,6 +373,45 @@ class TestProcurementService:
             mock_settings.skip_pubsub_oidc_verification = False
             await service.process_event(event)
 
+    # --- backfill_entitlement_account_id tests ---
+
+    @pytest.mark.asyncio
+    async def test_backfill_entitlement_account_id(self, service):
+        """Test backfill updates empty account_id."""
+        ent = Entitlement(
+            id="order-backfill",
+            account_id="",
+            state=EntitlementState.ACTIVE,
+            provider_id="provider-1",
+        )
+        await service._entitlement_repo.create(ent)
+
+        await service.backfill_entitlement_account_id("order-backfill", "account-filled")
+
+        updated = await service._entitlement_repo.get("order-backfill")
+        assert updated.account_id == "account-filled"
+
+    @pytest.mark.asyncio
+    async def test_backfill_entitlement_account_id_no_overwrite(self, service):
+        """Test backfill does not overwrite existing account_id."""
+        ent = Entitlement(
+            id="order-existing-acct",
+            account_id="original-account",
+            state=EntitlementState.ACTIVE,
+            provider_id="provider-1",
+        )
+        await service._entitlement_repo.create(ent)
+
+        await service.backfill_entitlement_account_id("order-existing-acct", "new-account")
+
+        updated = await service._entitlement_repo.get("order-existing-acct")
+        assert updated.account_id == "original-account"
+
+    @pytest.mark.asyncio
+    async def test_backfill_entitlement_account_id_not_found(self, service):
+        """Test backfill on non-existent order does not raise."""
+        await service.backfill_entitlement_account_id("order-nonexistent", "account-1")
+
     # --- _resolve_account_id tests ---
 
     @pytest.mark.asyncio

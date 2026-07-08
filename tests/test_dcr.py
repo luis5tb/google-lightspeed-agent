@@ -172,6 +172,74 @@ class TestDCRService:
         assert client.account_id == "valid-account-123"
 
 
+class TestDCRServiceBackfill:
+    """Tests for DCR service backfilling entitlement account_id."""
+
+    @pytest_asyncio.fixture
+    async def service_and_repo(self, db_session):
+        """Create a DCR service with an entitlement that has empty account_id."""
+        entitlement_repo = EntitlementRepository()
+        client_repo = DCRClientRepository()
+        procurement_service = ProcurementService(
+            entitlement_repo=entitlement_repo,
+        )
+
+        entitlement = Entitlement(
+            id="backfill-order-789",
+            account_id="",
+            provider_id="provider-456",
+            state=EntitlementState.ACTIVE,
+        )
+        await entitlement_repo.create(entitlement)
+
+        svc = DCRService(
+            procurement_service=procurement_service,
+            client_repository=client_repo,
+        )
+        return svc, entitlement_repo
+
+    @pytest.mark.asyncio
+    async def test_register_client_backfills_entitlement_account_id(self, service_and_repo):
+        """Test that DCR registration backfills empty entitlement account_id."""
+        from lightspeed_agent.dcr.gma_client import GMAClientResponse
+
+        service, entitlement_repo = service_and_repo
+
+        claims = GoogleJWTClaims(
+            iss="https://accounts.google.com",
+            iat=int(time.time()),
+            exp=int(time.time()) + 3600,
+            aud="https://example.com",
+            sub="backfill-account-123",
+            google={"order": "backfill-order-789"},
+            auth_app_redirect_uris=["https://example.com/callback"],
+        )
+
+        mock_gma = AsyncMock()
+        mock_gma.create_tenant.return_value = GMAClientResponse(
+            client_id="new-client-id",
+            client_secret="new-secret",
+            name="lightspeed-backfill-order-789",
+        )
+        service._gma_client = mock_gma
+
+        # Mock JWT validation to return our claims
+        with patch.object(
+            service._jwt_validator,
+            "validate_software_statement",
+            new_callable=AsyncMock,
+            return_value=claims,
+        ):
+            result = await service.register_client(
+                DCRRequest(software_statement="valid-jwt")
+            )
+
+        assert isinstance(result, DCRResponse)
+
+        ent = await entitlement_repo.get("backfill-order-789")
+        assert ent.account_id == "backfill-account-123"
+
+
 class TestDCRServiceEncryptionValidation:
     """Tests for DCR service encryption key validation."""
 
