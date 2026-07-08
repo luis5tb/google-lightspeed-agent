@@ -172,6 +172,11 @@ class DCRService:
                 error_description=f"Invalid Order ID: {claims.order_id}",
             )
 
+        # Step 3b: Backfill entitlement account_id if empty
+        await self._procurement_service.backfill_entitlement_account_id(
+            claims.order_id, claims.account_id
+        )
+
         # Step 4: Check if client already exists for this order
         existing_client = await self._client_repository.get_by_order_id(claims.order_id)
         if existing_client:

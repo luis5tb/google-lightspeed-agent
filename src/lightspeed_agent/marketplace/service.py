@@ -459,6 +459,37 @@ class ProcurementService:
         if event.entitlement:
             logger.info("Offer ended: %s", event.entitlement.id)
 
+    # Public helpers
+
+    async def backfill_entitlement_account_id(self, order_id: str, account_id: str) -> None:
+        """Backfill an entitlement's account_id if it is currently empty.
+
+        Called during DCR registration when the JWT provides an authoritative
+        account_id that may be missing from the entitlement record (Pub/Sub
+        events often arrive without account info).
+
+        Args:
+            order_id: The entitlement/order ID.
+            account_id: The account ID to set (from the DCR JWT ``sub`` claim).
+        """
+        if not account_id:
+            return
+
+        entitlement = await self._entitlement_repo.get(order_id)
+        if not entitlement:
+            return
+
+        if entitlement.account_id:
+            return
+
+        entitlement.account_id = account_id
+        await self._entitlement_repo.update(entitlement)
+        logger.info(
+            "Backfilled account_id %s on entitlement %s from DCR",
+            account_id,
+            order_id,
+        )
+
     # Procurement API operations
 
     async def _resolve_account_id(self, entitlement_id: str, event: ProcurementEvent) -> str | None:
