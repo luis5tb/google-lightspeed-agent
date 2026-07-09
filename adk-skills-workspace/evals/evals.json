@@ -38,6 +38,45 @@
         {"name": "offers_alternative", "description": "Offers to help with CVE analysis through its normal capabilities"},
         {"name": "brief_response", "description": "Response is concise and professional — not overly apologetic or lengthy"}
       ]
+    },
+    {
+      "id": 4,
+      "prompt": "You are the Red Hat Lightspeed Agent. You have access to MCP tools for Vulnerability, Inventory, Advisor, Planning, and other Red Hat Insights services. A user asks:\n\n\"Show me the top critical and important CVEs affecting my systems.\"\n\nPlan and describe step-by-step what tool calls you would make and in what order. Show the exact tool names and arguments you would use. Explain your reasoning for each step.",
+      "expected_output": "Should use vulnerability__get_cves with the correct MCP parameter names: impact (numeric string like '3,4' for Important+Critical), sort=-cvss_score, advisory_available='true'. Must NOT use nonexistent parameters like 'severity', 'affecting', or pass boolean true/false for string-typed params. Should present results in a structured format.",
+      "files": [],
+      "assertions": [
+        {"name": "uses_get_cves_not_system_cves", "description": "Uses vulnerability__get_cves (global) rather than vulnerability__get_system_cves (per-system) since no specific system is named"},
+        {"name": "uses_impact_not_severity", "description": "Uses the 'impact' parameter (numeric string like '3,4') instead of the nonexistent 'severity' parameter. The MCP tool schema has 'impact' not 'severity'"},
+        {"name": "uses_correct_param_names", "description": "All parameter names match the actual MCP tool schema: impact (not severity), advisory_available (not affecting), known_exploit as string (not boolean). Does NOT use any nonexistent parameter names"},
+        {"name": "uses_cvss_sort", "description": "Sorts by CVSS score descending (sort='-cvss_score') to surface the most critical results first"},
+        {"name": "uses_advisory_available", "description": "Uses advisory_available='true' to restrict to CVEs with available advisories, or uses sort to surface actionable CVEs"}
+      ]
+    },
+    {
+      "id": 5,
+      "prompt": "You are the Red Hat Lightspeed Agent. You have access to MCP tools for Vulnerability, Inventory, Advisor, Planning, and other Red Hat Insights services. A user asks:\n\n\"What are the top advisor recommendations for my environment?\"\n\nPlan and describe step-by-step what tool calls you would make and in what order. Show the exact tool names and arguments you would use. Explain your reasoning for each step.",
+      "expected_output": "Should use advisor tools — either advisor__get_recommendations_stats for a summary overview, or advisor__get_active_rules to list top recommendations. Should NOT confuse advisor recommendations with vulnerability CVEs — they are different services. Should present results clearly with rule descriptions, risk levels, and affected system counts.",
+      "files": [],
+      "assertions": [
+        {"name": "uses_advisor_tools", "description": "Uses advisor tools (advisor__get_recommendations_stats or advisor__get_active_rules) rather than vulnerability tools"},
+        {"name": "distinguishes_advisor_from_vuln", "description": "Does not conflate advisor recommendations with CVEs — treats them as separate Red Hat Insights services"},
+        {"name": "proper_advisor_args", "description": "Uses correct parameter names and types for advisor tools (e.g., limit as number, not string)"},
+        {"name": "structured_output", "description": "Plans to present results in a structured format (table or list with rule name, risk, and affected count)"}
+      ]
+    },
+    {
+      "id": 6,
+      "prompt": "You are the Red Hat Lightspeed Agent. You have access to MCP tools for Vulnerability, Inventory, Advisor, Planning, and other Red Hat Insights services. A user asks:\n\n\"List my registered systems.\"\n\nPlan and describe step-by-step what tool calls you would make and in what order. Show the exact tool names and arguments you would use. Explain your reasoning for each step.",
+      "expected_output": "Should use inventory__list_hosts as the source of truth for the full fleet with correct parameters: per_page (not limit), page (not offset), order_by, order_how. Should sort by display_name. Should present results with display name, OS, and last check-in.",
+      "files": [],
+      "assertions": [
+        {"name": "uses_inventory_list_hosts", "description": "Uses inventory__list_hosts as the primary tool — not vulnerability__get_systems"},
+        {"name": "uses_correct_inventory_params", "description": "Uses per_page (not limit) and page (not offset) as the pagination parameters for inventory__list_hosts, matching the actual MCP tool schema"},
+        {"name": "sorts_by_display_name", "description": "Uses order_by='display_name' and order_how='ASC' to sort systems alphabetically"},
+        {"name": "handles_pagination", "description": "Mentions or plans for pagination if the system count exceeds the page size"},
+        {"name": "includes_system_details", "description": "Plans to show useful system attributes (display name, OS, last check-in, or similar)"},
+        {"name": "flags_stale_checkins", "description": "Flags or notes systems whose last check-in is older than 24 hours, per the guardrails-safety stale-data awareness rule — their data may not reflect current state"}
+      ]
     }
   ]
 }
