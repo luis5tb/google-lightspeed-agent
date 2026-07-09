@@ -8,7 +8,7 @@ description: |
   confirmed filter parameters for Vulnerability and Inventory tools. [STRICT]
 metadata:
   author: red-hat
-  version: "1.2"
+  version: "1.3"
 ---
 
 ## Invocation Format
@@ -20,7 +20,7 @@ of making an actual tool call — even when describing a multi-step plan.
 **Correct:**
 ```
 tool: vulnerability__get_cves
-args: {"limit": 20, "severity": "Critical", "sort": "-cvss_score"}
+args: {"limit": 20, "impact": "7", "sort": "-cvss_score"}
 ```
 
 **Wrong** (generating code instead of calling the tool):
@@ -42,22 +42,54 @@ Step 1: Call the vulnerability API at /api/v1/cves?limit=20
 
 ## Known Filter Parameters
 
-These parameters are confirmed available — use them directly without a schema lookup.
+These parameters are confirmed from the actual MCP tool schemas — use them
+directly without a schema lookup.
 
-**`vulnerability__get_cves`**: `limit`, `offset`, `sort` (e.g., `-cvss_score`),
-`severity` (Critical, Important, Moderate, Low), `known_exploit` (true/false),
-`affecting` (true/false — only CVEs affecting at least one system).
+**`vulnerability__get_cves`**: `limit` (integer), `offset` (integer),
+`sort` (string, e.g., `"-cvss_score"`),
+`impact` (string — comma-separated numeric impact IDs: `"7"` for Critical,
+`"5"` for Important, `"3"` for Moderate, `"1"` for Low; combine as `"5,7"`
+for Important+Critical),
+`known_exploit` (string: `"true"` or `"false"`),
+`advisory_available` (string: `"true"` for CVEs with available advisories),
+`cvss_from` / `cvss_to` (number — filter by CVSS score range),
+`affecting_host_type` (string),
+`filter_` (string — search/filter text).
 
-**`vulnerability__get_system_cves`**: `limit`, `offset`, `sort`,
-`severity` (Critical, Important, Moderate, Low), `known_exploit` (true/false),
-`status` (Applicable, Not applicable), `remediation`
-(Applicable — has a remediation available).
+**`vulnerability__get_system_cves`**: `system_uuid` (string, **required**),
+`limit` (integer), `offset` (integer), `sort` (string),
+`filter_` (string — search/filter text).
 
-**`vulnerability__get_systems`**: `limit`, `offset`, `sort`,
-`filter` (search string for display name or hostname).
+**`vulnerability__get_systems`**: `limit` (integer), `offset` (integer),
+`sort` (string), `filter_` (string — search by display name or hostname),
+`group_names` (string), `rhel_versions` (string).
 
-**`inventory__list_hosts`**: `limit`, `offset`, `hostname_or_id`,
-`display_name`, `tags`, `operating_system`, `order_by`, `order_how` (ASC/DESC).
+**`inventory__list_hosts`**: `per_page` (integer, **use 10 on first call**),
+`page` (integer, starts at 1 — increment for pagination),
+`hostname_or_id` (string), `display_name` (string), `fqdn` (string),
+`tags` (string — tag filter like `"ns/key=value"`, not an array),
+`staleness` (string: `"fresh"`, `"stale"`, `"stale_warning"`, `"unknown"`),
+`order_by` (string: `"display_name"`, `"updated"`, or `"created"`),
+`order_how` (string: `"ASC"` or `"DESC"`).
+
+**`inventory__get_host_system_profile`**: `host_ids` (string — comma-separated
+UUIDs, **one or two at a time** due to large response size). Use this tool
+when RHEL version information is needed — `list_hosts` does not reliably
+include `system_profile`.
+
+**`vulnerability__get_cve_systems`**: `cve` (string, **required** — format
+`"CVE-YYYY-NNNNN"`, uppercase, not `cve_id`), `limit` (integer),
+`offset` (integer), `sort` (string), `filter_` (string — filter on system
+display name), `system_uuid` (string — check a specific system).
+
+### Multi-impact queries
+
+The `impact` parameter accepts comma-separated numeric IDs, so you can request
+multiple severity levels in a single call. For example, to get both Critical
+and Important CVEs: `impact="3,4"`.
+
+Alternatively, omit `impact` and use `sort="-cvss_score"` to surface the
+highest-severity CVEs first regardless of impact level.
 
 For parameters not listed here, call the corresponding `*_get_openapi` tool
 (e.g., `vulnerability__get_openapi`) as a fallback — but prefer the parameters

@@ -108,18 +108,19 @@ class SanitizedMcpToolset(McpToolset):
 
             tool._get_declaration = _make_declaration_fn(tool)
 
-        # Log a sample for debugging
-        if tools:
-            for t in tools:
-                props = (t._mcp_tool.inputSchema or {}).get("properties", {})
-                if props:
-                    sample_props = {k: v.get("type", "MISSING") for k, v in list(props.items())[:3]}
-                    print(
-                        f"[schema_sanitizer] Sample '{t.name}' raw props: {sample_props}",
-                        file=sys.stderr,
-                        flush=True,
-                    )
-                    break
+        # Log all tool schemas for debugging parameter types and $ref usage
+        for t in tools:
+            schema = t._mcp_tool.inputSchema or {}
+            props = schema.get("properties", {})
+            has_refs = "$ref" in str(schema)
+            has_defs = "$defs" in schema or "definitions" in schema
+            prop_types = {k: v.get("type", "MISSING") for k, v in props.items()}
+            print(
+                f"[schema_sanitizer] Tool '{t.name}': "
+                f"props={prop_types}, has_$ref={has_refs}, has_$defs={has_defs}",
+                file=sys.stderr,
+                flush=True,
+            )
 
         return tools
 

@@ -28,7 +28,7 @@ narrower query. Apply these strategies in order:
    explain that the result set is very large and ask the user to narrow their request.
 
 Example: If `vulnerability__get_cves` returns `tool_result_too_large`, retry with
-`limit=20, severity=Critical` before falling back to asking the user.
+`limit=20, impact="7"` before falling back to asking the user.
 
 ## HTTP Status Codes
 

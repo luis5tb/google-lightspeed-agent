@@ -100,6 +100,10 @@ def _load_skills(skills_dir: str | None) -> SkillToolset | None:
     skills = _load_skills_from_dir(bundled_dir)
     if skills:
         logger.info("Loaded %d bundled skills from %s", len(skills), bundled_dir)
+        for name, skill in sorted(skills.items()):
+            meta = getattr(skill.frontmatter, "metadata", None) or {}
+            version = meta.get("version", "unknown") if isinstance(meta, dict) else "unknown"
+            logger.info("  Skill '%s' v%s loaded", name, version)
 
     if skills_dir:
         external_dir = pathlib.Path(skills_dir)
