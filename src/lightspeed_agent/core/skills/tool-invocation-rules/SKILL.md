@@ -1,14 +1,14 @@
 ---
 name: tool-invocation-rules
 description: |
-  Correct syntax, argument formatting, and known parameters for calling
-  Red Hat Insights MCP tools. Use this skill when invoking a tool for the
-  first time, when unsure about argument format or required parameters,
-  or when a tool call was rejected due to malformed input. Includes the
-  confirmed filter parameters for Vulnerability and Inventory tools. [STRICT]
+  ALWAYS load this skill before making any MCP tool call — it contains
+  required type rules (string-typed booleans, correct parameter names)
+  that prevent tool call rejections. Covers Vulnerability, Inventory,
+  and Advisor tools. Without this skill, tool calls will fail due to
+  wrong parameter names or types. [STRICT]
 metadata:
   author: red-hat
-  version: "1.4"
+  version: "1.5"
 ---
 
 ## Invocation Format
@@ -35,8 +35,12 @@ Step 1: Call the vulnerability API at /api/v1/cves?limit=20
 
 ## Argument Formatting
 
-- Pass arguments as their native JSON types: strings as `"text"`, numbers as `20`
-  (not `"20"`), booleans as `true`/`false` (not `"true"`/`"false"`).
+- Pass arguments using the types specified in the parameter list below.
+  Strings as `"text"`, numbers as `20` (not `"20"`).
+- **Important**: many boolean-like parameters (e.g., `impacting`, `known_exploit`,
+  `advisory_available`) are typed as **string** in the MCP schema — pass these as
+  `"true"` or `"false"` (strings), never as JSON `true`/`false`. See "String-typed
+  booleans" below.
 - Omit optional arguments you don't need — do not pass `null` or empty strings.
 - For list/array parameters, use JSON arrays: `["tag1", "tag2"]`.
 
@@ -95,12 +99,16 @@ display name), `system_uuid` (string — check a specific system).
 
 **`advisor__get_recommendations_stats`**: `groups` (string), `tags` (string).
 
-### String-typed booleans
+### String-typed booleans — CRITICAL
 
-Several MCP tools use **string** type for boolean-like parameters (e.g.,
-`impacting`, `known_exploit`, `advisory_available`, `incident`). Always pass
-these as the string `"true"` or `"false"` — never as JSON boolean `true`/`false`.
-Passing a boolean instead of a string will cause the MCP server to reject the call.
+These parameters look like booleans but MUST be passed as **strings**:
+`impacting`, `known_exploit`, `advisory_available`, `incident`,
+`has_automatic_remediation`, `reboot`.
+
+**Correct**: `impacting="true"`, `known_exploit="false"`
+**Wrong**: `impacting=true`, `known_exploit=false` (JSON booleans — will cause errors)
+
+The MCP server rejects JSON boolean values for these parameters.
 
 ### Multi-impact queries
 
