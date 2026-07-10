@@ -64,7 +64,7 @@ spec:
             - name: GOOGLE_CLOUD_LOCATION
               value: "${VERTEXAI_LOCATION}"
             - name: GEMINI_MODEL
-              value: "gemini-2.5-flash"
+              value: "${GEMINI_MODEL}"
             # Agent Configuration
             - name: AGENT_HOST
               value: "0.0.0.0"
@@ -94,7 +94,7 @@ spec:
             - name: LOG_FORMAT
               value: "json"
             - name: AGENT_LOGGING_DETAIL
-              value: "basic"
+              value: "${AGENT_LOGGING_DETAIL}"
             # Red Hat SSO Configuration
             - name: RED_HAT_SSO_ISSUER
               value: "https://sso.redhat.com/auth/realms/redhat-external"
@@ -228,6 +228,7 @@ spec:
             - "--readonly"
             - "--toolset"
             - "advisor,inventory,vulnerability,planning,rhsm,content_sources,rbac"
+            # ${MCP_DEBUG_FLAG}
             - "http"
             - "--port"
             - "8080"

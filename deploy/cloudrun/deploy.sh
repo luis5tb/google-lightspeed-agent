@@ -92,6 +92,9 @@ AGENT_DOMAIN_NAME="${AGENT_DOMAIN_NAME:-}"
 HANDLER_DOMAIN_NAME="${HANDLER_DOMAIN_NAME:-}"
 LB_NAME="${LB_NAME:-lightspeed-lb}"
 SERVICE_CONTROL_SERVICE_NAME="${SERVICE_CONTROL_SERVICE_NAME:-}"
+GEMINI_MODEL="${GEMINI_MODEL:-gemini-3.5-flash}"
+AGENT_LOGGING_DETAIL="${AGENT_LOGGING_DETAIL:-basic}"
+MCP_DEBUG="${MCP_DEBUG:-false}"
 PUBSUB_TOPIC="${PUBSUB_TOPIC:-marketplace-entitlements}"
 
 # When PUBSUB_TOPIC is a fully-qualified path (projects/.../topics/...),
@@ -247,7 +250,15 @@ deploy_agent() {
         -e "s|\${SERVICE_ACCOUNT_NAME}|${SERVICE_ACCOUNT_NAME}|g" \
         -e "s|\${DB_INSTANCE_NAME}|${DB_INSTANCE_NAME}|g" \
         -e "s|\${VPC_CONNECTOR_NAME}|${VPC_CONNECTOR_NAME}|g" \
+        -e "s|\${GEMINI_MODEL}|${GEMINI_MODEL}|g" \
+        -e "s|\${AGENT_LOGGING_DETAIL}|${AGENT_LOGGING_DETAIL}|g" \
         deploy/cloudrun/service.yaml > "$tmp_yaml"
+
+    if [[ "$MCP_DEBUG" == "true" ]]; then
+        sed -i "s|            # \${MCP_DEBUG_FLAG}|            - \"--debug\"|" "$tmp_yaml"
+    else
+        sed -i "/# \${MCP_DEBUG_FLAG}/d" "$tmp_yaml"
+    fi
 
     # Deploy using the YAML
     gcloud run services replace "$tmp_yaml" \
