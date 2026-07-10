@@ -52,7 +52,7 @@ directly without a schema lookup.
 **`vulnerability__get_cves`**: `limit` (integer), `offset` (integer),
 `sort` (string, e.g., `"-cvss_score"` — **always include for "top" or severity queries**),
 `impact` (string — comma-separated numeric impact IDs: `"7"` for Critical,
-`"5"` for Important, `"3"` for Moderate, `"1"` for Low; combine as `"5,7"`
+`"5"` for Important, `"4"` for Moderate, `"2"` for Low; combine as `"5,7"`
 for Important+Critical),
 `known_exploit` (string: `"true"` or `"false"`),
 `advisory_available` (string: `"true"` for CVEs with available advisories —
@@ -136,6 +136,7 @@ The MCP server rejects JSON boolean values for these parameters.
 The `impact` parameter accepts comma-separated numeric IDs, so you can request
 multiple severity levels in a single call. For example, to get both Critical
 and Important CVEs: `impact="5,7"`.
+For Moderate and above: `impact="4,5,7"`. For all actionable severities: `impact="2,4,5,7"`.
 
 Alternatively, omit `impact` and use `sort="-cvss_score"` to surface the
 highest-severity CVEs first regardless of impact level.
