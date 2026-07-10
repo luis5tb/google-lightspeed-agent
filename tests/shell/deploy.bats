@@ -199,6 +199,58 @@ teardown() {
     grep -q "gcloud run services replace" "$GCLOUD_LOG_FILE"
 }
 
+@test "deploy_agent inserts --debug flag into service YAML when MCP_DEBUG=true" {
+    source_deploy
+    export MCP_DEBUG="true"
+    CAPTURED_YAML="$(mktemp)"
+    export CAPTURED_YAML
+
+    # Override the mock to snapshot the generated service YAML before
+    # deploy_agent deletes its temp file.
+    gcloud() {
+        local args="$*"
+        [[ -n "${GCLOUD_LOG_FILE:-}" ]] && echo "gcloud $args" >> "$GCLOUD_LOG_FILE"
+        if [[ "$1 $2 $3" == "run services replace" ]]; then
+            cp "$4" "$CAPTURED_YAML"
+        fi
+        echo "[MOCK] gcloud $args"
+        return 0
+    }
+    export -f gcloud
+
+    run deploy_agent
+    [[ "$status" -eq 0 ]]
+    grep -q -- '- "--debug"' "$CAPTURED_YAML"
+    ! grep -q "MCP_DEBUG_FLAG" "$CAPTURED_YAML"
+
+    rm -f "$CAPTURED_YAML"
+}
+
+@test "deploy_agent strips debug placeholder from service YAML when MCP_DEBUG=false" {
+    source_deploy
+    export MCP_DEBUG="false"
+    CAPTURED_YAML="$(mktemp)"
+    export CAPTURED_YAML
+
+    gcloud() {
+        local args="$*"
+        [[ -n "${GCLOUD_LOG_FILE:-}" ]] && echo "gcloud $args" >> "$GCLOUD_LOG_FILE"
+        if [[ "$1 $2 $3" == "run services replace" ]]; then
+            cp "$4" "$CAPTURED_YAML"
+        fi
+        echo "[MOCK] gcloud $args"
+        return 0
+    }
+    export -f gcloud
+
+    run deploy_agent
+    [[ "$status" -eq 0 ]]
+    ! grep -q -- '- "--debug"' "$CAPTURED_YAML"
+    ! grep -q "MCP_DEBUG_FLAG" "$CAPTURED_YAML"
+
+    rm -f "$CAPTURED_YAML"
+}
+
 @test "setup_service_lb sets ingress to internal-and-cloud-load-balancing" {
     export ENABLE_LB_AGENT="true"
     export AGENT_DOMAIN_NAME="agent.example.com"
