@@ -7,16 +7,20 @@ Expand the name of the chart.
 
 {{/*
 Create a default fully qualified app name.
+Truncated to 49 (not 63) chars: the longest suffix appended to this by a
+template ("-deploy-config" in deployment-config.yaml) is 14 chars, and
+Job/Pod names built from it must stay within Kubernetes' 63-char label
+limit (the auto-generated job-name label on a Job's Pods).
 */}}
 {{- define "chart.fullname" -}}
 {{- if .Values.fullnameOverride }}
-{{- .Values.fullnameOverride | trunc 63 | trimSuffix "-" }}
+{{- .Values.fullnameOverride | trunc 49 | trimSuffix "-" }}
 {{- else }}
 {{- $name := default .Chart.Name .Values.nameOverride }}
 {{- if contains $name .Release.Name }}
-{{- .Release.Name | trunc 63 | trimSuffix "-" }}
+{{- .Release.Name | trunc 49 | trimSuffix "-" }}
 {{- else }}
-{{- printf "%s-%s" .Release.Name $name | trunc 63 | trimSuffix "-" }}
+{{- printf "%s-%s" .Release.Name $name | trunc 49 | trimSuffix "-" }}
 {{- end }}
 {{- end }}
 {{- end }}
