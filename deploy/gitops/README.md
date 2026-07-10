@@ -154,9 +154,10 @@ The GCP service account used for the deploy Job needs the following IAM roles:
 | Role | Scope | Purpose |
 |---|---|---|
 | `roles/cloudbuild.builds.editor` | Project | Submit Cloud Build pipelines |
-| `roles/run.admin` | Project | Deploy Cloud Run services (via Cloud Build) |
+| `roles/run.admin` | Project | Deploy Cloud Run services (via Cloud Build); requires this SA to be passed as `--service-account` to `gcloud builds submit`, otherwise build steps run as the project's default executor SA and this role has no effect |
 | `roles/serviceusage.serviceUsageConsumer` | Project | `gcloud builds submit` API access |
 | `roles/iam.serviceAccountUser` | Cloud Run runtime SA | Impersonate the Cloud Run runtime SA |
+| `roles/iam.serviceAccountUser` | Self | Required to run the build as this SA via `--service-account` |
 
 ## Cross-Cluster Deployment
 

@@ -110,28 +110,61 @@ fi
 
 log_info "Granting IAM roles to ${SA_EMAIL}..."
 
+FAILED_ROLES=()
+
 # Project-level roles:
 PROJECT_ROLES=(
     "roles/cloudbuild.builds.editor"           # Deploy Job submits Cloud Build pipelines
-    "roles/run.admin"                          # Cloud Build deploys Cloud Run services
+    "roles/run.admin"                          # Cloud Build deploys Cloud Run services (requires
+                                                # this SA to also be passed as --service-account
+                                                # to `gcloud builds submit`; see deploy-job.yaml)
     "roles/serviceusage.serviceUsageConsumer"  # gcloud builds submit API access
 )
 
 for role in "${PROJECT_ROLES[@]}"; do
     log_info "  Granting ${role}..."
-    gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
+    if ! gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
         --member="serviceAccount:${SA_EMAIL}" \
         --role="${role}" \
-        --quiet || true
+        --quiet; then
+        log_error "  Failed to grant ${role}"
+        FAILED_ROLES+=("${role}")
+    fi
 done
 
 # iam.serviceAccountUser scoped to the Cloud Run runtime SA only (not project-wide)
 log_info "  Granting roles/iam.serviceAccountUser on ${CLOUD_RUN_SA_EMAIL}..."
-gcloud iam service-accounts add-iam-policy-binding "${CLOUD_RUN_SA_EMAIL}" \
+if ! gcloud iam service-accounts add-iam-policy-binding "${CLOUD_RUN_SA_EMAIL}" \
     --member="serviceAccount:${SA_EMAIL}" \
     --role="roles/iam.serviceAccountUser" \
     --project="${PROJECT_ID}" \
-    --quiet || true
+    --quiet; then
+    log_error "  Failed to grant roles/iam.serviceAccountUser on ${CLOUD_RUN_SA_EMAIL}"
+    FAILED_ROLES+=("roles/iam.serviceAccountUser on ${CLOUD_RUN_SA_EMAIL}")
+fi
+
+# iam.serviceAccountUser on itself: deploy-job.yaml passes this SA as
+# --service-account to `gcloud builds submit`, and Cloud Build requires the
+# submitter to hold actAs on whichever SA executes the build -- including
+# when that SA is the submitter itself.
+log_info "  Granting roles/iam.serviceAccountUser on ${SA_EMAIL} (self, for --service-account builds)..."
+if ! gcloud iam service-accounts add-iam-policy-binding "${SA_EMAIL}" \
+    --member="serviceAccount:${SA_EMAIL}" \
+    --role="roles/iam.serviceAccountUser" \
+    --project="${PROJECT_ID}" \
+    --quiet; then
+    log_error "  Failed to grant roles/iam.serviceAccountUser on ${SA_EMAIL}"
+    FAILED_ROLES+=("roles/iam.serviceAccountUser on ${SA_EMAIL}")
+fi
+
+if [[ ${#FAILED_ROLES[@]} -gt 0 ]]; then
+    log_error "One or more IAM role grants failed:"
+    for role in "${FAILED_ROLES[@]}"; do
+        log_error "  - ${role}"
+    done
+    log_error "Fix the underlying permission issue and re-run this script before deploying."
+    exit 1
+fi
 
 # =============================================================================
 # Step 3: Create and Download SA Key
@@ -194,6 +227,8 @@ for role in "${PROJECT_ROLES[@]}"; do
     log_info "    - ${role}"
 done
 log_info "  Roles (SA-level on ${CLOUD_RUN_SA_EMAIL}):"
+log_info "    - roles/iam.serviceAccountUser"
+log_info "  Roles (SA-level on ${SA_EMAIL}, self):"
 log_info "    - roles/iam.serviceAccountUser"
 log_info "  K8s Secret:      ${SECRET_NAME} (namespace: ${NAMESPACE})"
 echo ""

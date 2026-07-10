@@ -74,6 +74,15 @@ gcloud iam service-accounts add-iam-policy-binding ${CLOUD_RUN_SA_EMAIL} \
   --role="roles/iam.serviceAccountUser" \
   --project="${PROJECT_ID}"
 
+# Grant iam.serviceAccountUser on itself: the deploy Job passes this SA as
+# --service-account to `gcloud builds submit`, and Cloud Build requires the
+# submitter to hold actAs on the SA executing the build, even when it's the
+# same identity.
+gcloud iam service-accounts add-iam-policy-binding ${SA_EMAIL} \
+  --member="serviceAccount:${SA_EMAIL}" \
+  --role="roles/iam.serviceAccountUser" \
+  --project="${PROJECT_ID}"
+
 # Create and download key (restrictive permissions)
 umask 077
 gcloud iam service-accounts keys create sa-key.json \
@@ -96,11 +105,12 @@ The GitOps deploy Job service account requires the following IAM roles:
 | Role | Scope | Purpose |
 |------|-------|---------|
 | `roles/cloudbuild.builds.editor` | Project | Deploy Job submits Cloud Build pipelines |
-| `roles/run.admin` | Project | Cloud Build deploys Cloud Run services |
+| `roles/run.admin` | Project | Cloud Build deploys Cloud Run services — only takes effect because `deploy-job.yaml` passes this SA via `--service-account` to `gcloud builds submit`; without that flag, build steps execute as the project's default executor SA instead, and this grant would have no effect |
 | `roles/serviceusage.serviceUsageConsumer` | Project | `gcloud builds submit` API access |
 | `roles/iam.serviceAccountUser` | Cloud Run runtime SA | Cloud Build impersonates the Cloud Run runtime SA |
+| `roles/iam.serviceAccountUser` | Self (`lightspeed-gitops`) | Required by Cloud Build to run the build as this SA via `--service-account`, even when the submitter and executor are the same identity |
 
-`roles/iam.serviceAccountUser` is granted at the SA level (not project-wide) to limit the impersonation scope to the Cloud Run runtime SA only.
+`roles/iam.serviceAccountUser` on the Cloud Run runtime SA is granted at the SA level (not project-wide) to limit the impersonation scope to that SA only.
 
 This service account is separate from the Cloud Run runtime SA created by `deploy/cloudrun/setup.sh`. The runtime SA has additional roles for the running agent (AI Platform, Pub/Sub, Cloud SQL, etc.).
 

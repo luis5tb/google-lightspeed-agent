@@ -65,6 +65,17 @@ spec:
                 --key-file=/var/run/secrets/gcp/gcp-service-account-key \
                 --project="${GOOGLE_CLOUD_PROJECT}"
 
+              # gcloud builds submit only needs cloudbuild.builds.editor on
+              # the submitting identity: build steps execute as whatever
+              # service account is passed via --service-account (or the
+              # project's default executor SA if omitted), NOT as the
+              # submitter. Pin it explicitly so the run.admin /
+              # serviceusage.serviceUsageConsumer roles granted by
+              # setup-gcp-sa.sh actually apply to the identity deploying
+              # Cloud Run, instead of silently depending on whatever
+              # permissions the project's default executor SA happens to have.
+              DEPLOY_SA_EMAIL=$(gcloud config get-value account)
+
               WORK_DIR=$(mktemp -d)
               {{- if .Values.deploy.gitTokenSecret }}
               git clone --depth 1 --branch "${GIT_BRANCH}" \
@@ -156,6 +167,7 @@ spec:
                 --no-source \
                 --config=cloudbuild.yaml \
                 --project="${GOOGLE_CLOUD_PROJECT}" \
+                --service-account="projects/${GOOGLE_CLOUD_PROJECT}/serviceAccounts/${DEPLOY_SA_EMAIL}" \
                 --substitutions="${SUBSTITUTIONS}"
       volumes:
         - name: tmp
