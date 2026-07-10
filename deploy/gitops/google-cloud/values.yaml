@@ -19,6 +19,15 @@ images:
     source: quay.io/redhat-services-prod/insights-management-tenant/insights-mcp/red-hat-lightspeed-mcp
     tag: latest
 
+# -- Agent runtime configuration passed to Cloud Run service
+agent:
+  geminiModel: "gemini-3.5-flash"
+  loggingDetail: "basic"
+
+# -- MCP server configuration
+mcp:
+  debug: "false"
+
 # -- Cloud Run service configuration
 services:
   agent:

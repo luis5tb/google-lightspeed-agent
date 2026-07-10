@@ -65,6 +65,10 @@ substitutions:
   _HANDLER_DOMAIN_NAME: ""
   _LB_NAME: lightspeed-lb
   _SCAN_SEVERITY: CRITICAL,HIGH
+  # Agent and MCP runtime configuration
+  _GEMINI_MODEL: "gemini-3.5-flash"
+  _AGENT_LOGGING_DETAIL: "basic"
+  _MCP_DEBUG: "false"
 
 timeout: 1800s
 
@@ -281,7 +285,15 @@ steps:
             -e 's|$${SERVICE_ACCOUNT_NAME}|${_SERVICE_ACCOUNT_NAME}|g' \
             -e 's|$${DB_INSTANCE_NAME}|${_DB_INSTANCE_NAME}|g' \
             -e 's|$${VPC_CONNECTOR_NAME}|${_VPC_CONNECTOR_NAME}|g' \
+            -e 's|$${GEMINI_MODEL}|${_GEMINI_MODEL}|g' \
+            -e 's|$${AGENT_LOGGING_DETAIL}|${_AGENT_LOGGING_DETAIL}|g' \
             deploy/cloudrun/service.yaml > /workspace/service.yaml
+
+        if [ "${_MCP_DEBUG}" = "true" ]; then
+          sed -i 's|            # $${MCP_DEBUG_FLAG}|            - "--debug"|' /workspace/service.yaml
+        else
+          sed -i '/# $${MCP_DEBUG_FLAG}/d' /workspace/service.yaml
+        fi
 
         gcloud run services replace /workspace/service.yaml \
             --region=${_REGION} \

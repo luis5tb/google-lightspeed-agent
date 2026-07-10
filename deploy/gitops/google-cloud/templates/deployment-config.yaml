@@ -33,5 +33,8 @@ data:
   _CLOUD_ARMOR_SENSITIVITY_HANDLER: {{ .Values.loadBalancer.handler.cloudArmor.sensitivity | quote }}
   _ALLOW_UNAUTHENTICATED: {{ .Values.security.allowUnauthenticated | quote }}
   _SCAN_SEVERITY: {{ .Values.security.scanSeverity | quote }}
+  _GEMINI_MODEL: {{ .Values.agent.geminiModel | quote }}
+  _AGENT_LOGGING_DETAIL: {{ .Values.agent.loggingDetail | quote }}
+  _MCP_DEBUG: {{ .Values.mcp.debug | quote }}
   GIT_REPO: {{ .Values.deploy.gitRepo | quote }}
   GIT_BRANCH: {{ .Values.deploy.gitBranch | quote }}
