@@ -66,7 +66,7 @@ substitutions:
   _LB_NAME: lightspeed-lb
   _SCAN_SEVERITY: CRITICAL,HIGH
   # Agent and MCP runtime configuration
-  _GEMINI_MODEL: "gemini-3.5-flash"
+  _GEMINI_MODEL: "gemini-2.5-flash"
   _AGENT_LOGGING_DETAIL: "basic"
   _MCP_DEBUG: "false"
 
