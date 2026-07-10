@@ -78,8 +78,10 @@ spec:
 
               WORK_DIR=$(mktemp -d)
               {{- if .Values.deploy.gitTokenSecret }}
-              git clone --depth 1 --branch "${GIT_BRANCH}" \
-                "https://x-access-token:${GIT_TOKEN}@${GIT_REPO#https://}" "${WORK_DIR}"
+              # Use a credential helper instead of embedding the token in the
+              # clone URL, so it never appears in argv/`ps`/`/proc/*/cmdline`.
+              git -c credential.helper='!f() { echo "username=x-access-token"; echo "password=${GIT_TOKEN}"; }; f' \
+                clone --depth 1 --branch "${GIT_BRANCH}" "${GIT_REPO}" "${WORK_DIR}"
               {{- else }}
               git clone --depth 1 --branch "${GIT_BRANCH}" "${GIT_REPO}" "${WORK_DIR}"
               {{- end }}
@@ -145,9 +147,15 @@ spec:
               # block access to the default Cloud Build bucket.
               #
               # WARNING: When using a private repo (gitTokenSecret), the token
-              # is embedded in the Cloud Build step args and may be visible in
-              # Cloud Build logs and GCP Console build history. Restrict Cloud
-              # Logging access accordingly.
+              # is embedded in this Cloud Build step's args, which are stored
+              # as part of the Build resource itself (visible via `gcloud
+              # builds describe`/Console build details/API to anyone with
+              # cloudbuild.builds.viewer) -- not just in logs, so restricting
+              # Cloud Logging access alone is not sufficient. To fully close
+              # this, store the token in GCP Secret Manager and have this step
+              # fetch it at runtime via `gcloud secrets versions access`
+              # (using the build's own service account) instead of passing it
+              # through build config/substitutions.
               {{- if .Values.deploy.gitTokenSecret }}
               CLONE_URL="https://x-access-token:${GIT_TOKEN}@${GIT_REPO#https://}"
               {{- else }}
