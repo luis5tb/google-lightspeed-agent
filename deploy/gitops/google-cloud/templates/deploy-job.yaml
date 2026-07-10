@@ -141,6 +141,14 @@ spec:
                 exit 1
               fi
 
+              # GIT_REPO is spliced into a single-quoted YAML list item below;
+              # validate it the same way GIT_BRANCH and _SCAN_SEVERITY are to
+              # avoid breaking out of the quoted string.
+              if ! [[ "${GIT_REPO}" =~ ^https://[a-zA-Z0-9._/-]+$ ]]; then
+                echo "ERROR: GIT_REPO contains invalid characters: ${GIT_REPO}" >&2
+                exit 1
+              fi
+
               # Inject a git clone step as the first Cloud Build step so
               # the build fetches source directly. This uses --no-source to
               # avoid uploading to GCS, which fails when VPC Service Controls
