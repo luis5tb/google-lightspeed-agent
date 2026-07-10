@@ -8,7 +8,7 @@ description: |
   wrong parameter names or types. [STRICT]
 metadata:
   author: red-hat
-  version: "1.5"
+  version: "1.6"
 ---
 
 ## Invocation Format
@@ -98,6 +98,27 @@ display name), `system_uuid` (string — check a specific system).
 `groups` (string), `tags` (string).
 
 **`advisor__get_recommendations_stats`**: `groups` (string), `tags` (string).
+
+### Recommended defaults for common queries
+
+Copy these argument sets for the most frequent query patterns:
+
+**"Top/critical CVEs"** or any severity-filtered CVE query:
+```json
+vulnerability__get_cves: {"impact": "5,7", "sort": "-cvss_score", "advisory_available": "true", "limit": 20}
+```
+
+**"List my systems"** or any host/inventory listing:
+```json
+inventory__list_hosts: {"per_page": 10, "page": 1, "order_by": "display_name", "order_how": "ASC"}
+```
+
+**"Top advisor recommendations"** or any advisor query:
+```json
+advisor__get_active_rules: {"impacting": "true", "sort": "-total_risk", "limit": 20}
+```
+
+Omit filters you don't need, but always keep `sort` and `limit`/`per_page`.
 
 ### String-typed booleans — CRITICAL
 
