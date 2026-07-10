@@ -8,7 +8,7 @@ description: |
   confirmed filter parameters for Vulnerability and Inventory tools. [STRICT]
 metadata:
   author: red-hat
-  version: "1.3"
+  version: "1.4"
 ---
 
 ## Invocation Format
@@ -46,12 +46,13 @@ These parameters are confirmed from the actual MCP tool schemas — use them
 directly without a schema lookup.
 
 **`vulnerability__get_cves`**: `limit` (integer), `offset` (integer),
-`sort` (string, e.g., `"-cvss_score"`),
+`sort` (string, e.g., `"-cvss_score"` — **always include for "top" or severity queries**),
 `impact` (string — comma-separated numeric impact IDs: `"7"` for Critical,
 `"5"` for Important, `"3"` for Moderate, `"1"` for Low; combine as `"5,7"`
 for Important+Critical),
 `known_exploit` (string: `"true"` or `"false"`),
-`advisory_available` (string: `"true"` for CVEs with available advisories),
+`advisory_available` (string: `"true"` for CVEs with available advisories —
+**include by default** to restrict to actionable CVEs),
 `cvss_from` / `cvss_to` (number — filter by CVSS score range),
 `affecting_host_type` (string),
 `filter_` (string — search/filter text).
@@ -69,8 +70,9 @@ for Important+Critical),
 `hostname_or_id` (string), `display_name` (string), `fqdn` (string),
 `tags` (string — tag filter like `"ns/key=value"`, not an array),
 `staleness` (string: `"fresh"`, `"stale"`, `"stale_warning"`, `"unknown"`),
-`order_by` (string: `"display_name"`, `"updated"`, or `"created"`),
-`order_how` (string: `"ASC"` or `"DESC"`).
+`order_by` (string: `"display_name"`, `"updated"`, or `"created"` —
+**always include `"display_name"` for user-facing listings**),
+`order_how` (string: `"ASC"` or `"DESC"` — **default to `"ASC"`**).
 
 **`inventory__get_host_system_profile`**: `host_ids` (string — comma-separated
 UUIDs, **one or two at a time** due to large response size). Use this tool
@@ -104,7 +106,7 @@ Passing a boolean instead of a string will cause the MCP server to reject the ca
 
 The `impact` parameter accepts comma-separated numeric IDs, so you can request
 multiple severity levels in a single call. For example, to get both Critical
-and Important CVEs: `impact="3,4"`.
+and Important CVEs: `impact="5,7"`.
 
 Alternatively, omit `impact` and use `sort="-cvss_score"` to surface the
 highest-severity CVEs first regardless of impact level.
