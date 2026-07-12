@@ -37,7 +37,7 @@ spec:
                 ]
               },
               "color": { "mode": "fixed", "fixedColor": "blue" }
-            },
+            }
           },
           "options": {
             "displayMode": "gradient",
@@ -71,7 +71,7 @@ spec:
                 "spanNulls": true
               },
               "color": { "mode": "fixed", "fixedColor": "semi-dark-blue" }
-            },
+            }
           },
           "options": {
             "tooltip": { "mode": "single" },
@@ -293,13 +293,18 @@ spec:
           },
           "options": {
             "showHeader": true,
-            "footer": { "show": true, "countRows": true }
+            "footer": { "show": true, "reducer": ["sum"], "countRows": true }
           },
           "transformations": [
             {
+              "id": "filterFieldsByName",
+              "options": {
+                "include": { "pattern": "account_id|order_id|client_id" }
+              }
+            },
+            {
               "id": "organize",
               "options": {
-                "excludeByName": { "Time": true, "__name__": true, "job": true, "Value": true },
                 "indexByName": { "account_id": 0, "order_id": 1, "client_id": 2 }
               }
             }
@@ -358,7 +363,7 @@ spec:
                 ]
               },
               "color": { "mode": "fixed", "fixedColor": "orange" }
-            },
+            }
           },
           "options": {
             "displayMode": "gradient",
@@ -389,7 +394,7 @@ spec:
                 ]
               },
               "color": { "mode": "fixed", "fixedColor": "purple" }
-            },
+            }
           },
           "options": {
             "displayMode": "gradient",
@@ -420,7 +425,7 @@ spec:
                 ]
               },
               "color": { "mode": "fixed", "fixedColor": "semi-dark-blue" }
-            },
+            }
           },
           "options": {
             "displayMode": "gradient",
