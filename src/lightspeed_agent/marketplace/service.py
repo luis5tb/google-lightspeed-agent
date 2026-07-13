@@ -473,10 +473,12 @@ class ProcurementService:
             account_id: The account ID to set (from the DCR JWT ``sub`` claim).
         """
         if not account_id:
+            logger.warning("Cannot backfill entitlement %s: empty account_id", order_id)
             return
 
         entitlement = await self._entitlement_repo.get(order_id)
         if not entitlement:
+            logger.warning("Cannot backfill account_id: entitlement %s not found", order_id)
             return
 
         if entitlement.account_id:
@@ -550,10 +552,18 @@ class ProcurementService:
                 "Entitlement %s not found in Procurement API (404)",
                 entitlement_id,
             )
-        elif response.status_code >= 500:
+        elif response.status_code == 429 or response.status_code >= 500:
             raise RuntimeError(
                 f"Server error resolving account for entitlement {entitlement_id}: "
                 f"HTTP {response.status_code} — {response.text}"
+            )
+        elif response.status_code in (401, 403):
+            logger.error(
+                "Auth error fetching entitlement %s (HTTP %s) — "
+                "check service account permissions: %s",
+                entitlement_id,
+                response.status_code,
+                response.text,
             )
         else:
             logger.warning(

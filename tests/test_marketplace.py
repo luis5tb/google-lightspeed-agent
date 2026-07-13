@@ -508,6 +508,57 @@ class TestProcurementService:
         assert result is None
 
     @pytest.mark.asyncio
+    async def test_resolve_account_id_raises_on_429(self, service):
+        """Test _resolve_account_id raises RuntimeError on 429 (rate limited)."""
+        event = ProcurementEvent(
+            event_id="event-1",
+            event_type=ProcurementEventType.ENTITLEMENT_CREATION_REQUESTED,
+            provider_id="provider-1",
+            entitlement=EntitlementInfo(id="order-1"),
+        )
+
+        mock_response = httpx.Response(
+            status_code=429,
+            text="Too Many Requests",
+            request=httpx.Request("GET", "https://example.com"),
+        )
+        with (
+            patch.object(service, "_settings") as mock_settings,
+            patch.object(service, "_get_auth_headers", return_value={}),
+            patch("httpx.AsyncClient.get", new_callable=AsyncMock, return_value=mock_response),
+        ):
+            mock_settings.google_cloud_project = "test-project"
+            mock_settings.skip_pubsub_oidc_verification = False
+            with pytest.raises(RuntimeError, match="Server error resolving account"):
+                await service._resolve_account_id("order-1", event)
+
+    @pytest.mark.asyncio
+    async def test_resolve_account_id_auth_error_returns_none(self, service):
+        """Test _resolve_account_id returns None on 401/403 (auth errors)."""
+        event = ProcurementEvent(
+            event_id="event-1",
+            event_type=ProcurementEventType.ENTITLEMENT_CREATION_REQUESTED,
+            provider_id="provider-1",
+            entitlement=EntitlementInfo(id="order-1"),
+        )
+
+        mock_response = httpx.Response(
+            status_code=403,
+            text="Forbidden",
+            request=httpx.Request("GET", "https://example.com"),
+        )
+        with (
+            patch.object(service, "_settings") as mock_settings,
+            patch.object(service, "_get_auth_headers", return_value={}),
+            patch("httpx.AsyncClient.get", new_callable=AsyncMock, return_value=mock_response),
+        ):
+            mock_settings.google_cloud_project = "test-project"
+            mock_settings.skip_pubsub_oidc_verification = False
+            result = await service._resolve_account_id("order-1", event)
+
+        assert result is None
+
+    @pytest.mark.asyncio
     async def test_resolve_account_id_network_error_raises(self, service):
         """Test _resolve_account_id raises RuntimeError on transient network errors."""
         event = ProcurementEvent(
