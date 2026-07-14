@@ -24,11 +24,25 @@ agent:
   geminiModel: "gemini-3.5-flash"
   loggingDetail: "basic"
 
+# -- Secret Manager secret names (parameterized for multi-instance)
+secrets:
+  databaseUrl: "database-url"
+  sessionDatabaseUrl: "session-database-url"
+  dcrEncryptionKey: "dcr-encryption-key"
+
+# -- Rate limiting and Redis configuration
+rateLimit:
+  keyPrefix: "lightspeed:ratelimit"
+  redisUrlSecret: "rate-limit-redis-url"
+  redisCaCertSecret: "redis-ca-cert"
+
 # -- MCP server configuration
 # Value is a string (not boolean) because it passes through to Cloud Build
 # substitutions which are always string-typed.
 mcp:
   debug: "false"
+  timeout: "60"
+  sseReadTimeout: "300"
 
 # -- Cloud Run service configuration
 services:

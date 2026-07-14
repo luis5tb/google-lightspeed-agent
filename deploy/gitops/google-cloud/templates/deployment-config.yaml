@@ -33,5 +33,16 @@ data:
   _CLOUD_ARMOR_SENSITIVITY_HANDLER: {{ .Values.loadBalancer.handler.cloudArmor.sensitivity | quote }}
   _ALLOW_UNAUTHENTICATED: {{ .Values.security.allowUnauthenticated | quote }}
   _SCAN_SEVERITY: {{ .Values.security.scanSeverity | quote }}
+  _GEMINI_MODEL: {{ .Values.agent.geminiModel | quote }}
+  _AGENT_LOGGING_DETAIL: {{ .Values.agent.loggingDetail | quote }}
+  _MCP_DEBUG: {{ .Values.mcp.debug | quote }}
+  _MCP_TIMEOUT: {{ .Values.mcp.timeout | quote }}
+  _MCP_SSE_READ_TIMEOUT: {{ .Values.mcp.sseReadTimeout | quote }}
+  _DATABASE_URL_SECRET: {{ .Values.secrets.databaseUrl | quote }}
+  _SESSION_DATABASE_URL_SECRET: {{ .Values.secrets.sessionDatabaseUrl | quote }}
+  _DCR_ENCRYPTION_KEY_SECRET: {{ .Values.secrets.dcrEncryptionKey | quote }}
+  _RATE_LIMIT_KEY_PREFIX: {{ .Values.rateLimit.keyPrefix | quote }}
+  _REDIS_URL_SECRET: {{ .Values.rateLimit.redisUrlSecret | quote }}
+  _REDIS_CA_CERT_SECRET: {{ .Values.rateLimit.redisCaCertSecret | quote }}
   GIT_REPO: {{ .Values.deploy.gitRepo | quote }}
   GIT_BRANCH: {{ .Values.deploy.gitBranch | quote }}
