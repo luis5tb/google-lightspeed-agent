@@ -23,6 +23,7 @@ images:
 agent:
   geminiModel: "gemini-3.5-flash"
   loggingDetail: "basic"
+  otelServiceName: ""
 
 # -- Secret Manager secret names (parameterized for multi-instance)
 secrets:

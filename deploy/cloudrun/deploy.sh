@@ -103,6 +103,7 @@ AGENT_LOGGING_DETAIL="${AGENT_LOGGING_DETAIL:-basic}"
 MCP_DEBUG="${MCP_DEBUG:-false}"
 MCP_TIMEOUT="${MCP_TIMEOUT:-60}"
 MCP_SSE_READ_TIMEOUT="${MCP_SSE_READ_TIMEOUT:-300}"
+OTEL_SERVICE_NAME="${OTEL_SERVICE_NAME:-${SERVICE_NAME}}"
 PUBSUB_TOPIC="${PUBSUB_TOPIC:-marketplace-entitlements}"
 
 # When PUBSUB_TOPIC is a fully-qualified path (projects/.../topics/...),
@@ -267,7 +268,7 @@ deploy_agent() {
         -e "s|\${RATE_LIMIT_KEY_PREFIX}|${RATE_LIMIT_KEY_PREFIX}|g" \
         -e "s|\${REDIS_URL_SECRET}|${REDIS_URL_SECRET}|g" \
         -e "s|\${REDIS_CA_CERT_SECRET}|${REDIS_CA_CERT_SECRET}|g" \
-        -e "s|\${OTEL_SERVICE_NAME}|${SERVICE_NAME}|g" \
+        -e "s|\${OTEL_SERVICE_NAME}|${OTEL_SERVICE_NAME}|g" \
         deploy/cloudrun/service.yaml > "$tmp_yaml"
 
     if [[ "$MCP_DEBUG" == "true" ]]; then
