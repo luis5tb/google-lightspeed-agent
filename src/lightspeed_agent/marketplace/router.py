@@ -190,8 +190,17 @@ async def _handle_pubsub_event(body: dict[str, Any]) -> JSONResponse:
     entitlement_data = data.get("entitlement")
     product = entitlement_data.get("product") if entitlement_data else None
 
+    # GCP Pub/Sub notifications often omit the product field. When filtering
+    # is configured, fetch it from the Procurement API if missing.
+    if not product and settings.service_control_service_name and entitlement_data:
+        entitlement_id = (
+            entitlement_data.get("id")
+            or entitlement_data.get("name", "").split("/")[-1]
+        )
+        if entitlement_id:
+            product = await _fetch_entitlement_product(entitlement_id, settings)
+
     if product and settings.service_control_service_name:
-        # Strip the "products/" prefix if present
         product_id = product.removeprefix("products/")
         if product_id != settings.service_control_service_name:
             logger.info(
@@ -305,3 +314,66 @@ def _build_procurement_event(
         account=account_info,
         entitlement=entitlement_info,
     )
+
+
+_NOT_AUTHORIZED = "__not_authorized__"
+
+
+async def _fetch_entitlement_product(entitlement_id: str, settings: Any) -> str | None:
+    """Fetch the product field for an entitlement from the Procurement API.
+
+    Used for product-level filtering when the Pub/Sub message doesn't include
+    the product field (which is common for most event types).
+
+    Returns the product string, _NOT_AUTHORIZED if the SA lacks permission
+    (meaning this entitlement belongs to a different product), or None if
+    the product could not be determined.
+    """
+    import google.auth
+    import google.auth.transport.requests
+    import httpx
+
+    project = settings.google_cloud_project
+    if not project:
+        return None
+
+    url = (
+        f"https://cloudcommerceprocurement.googleapis.com/v1"
+        f"/providers/{project}/entitlements/{entitlement_id}"
+    )
+
+    try:
+        credentials, _ = google.auth.default(
+            scopes=["https://www.googleapis.com/auth/cloud-platform"]
+        )
+        credentials.refresh(google.auth.transport.requests.Request())  # type: ignore[no-untyped-call]
+        headers = {"Authorization": f"Bearer {credentials.token}"}
+
+        async with httpx.AsyncClient() as client:
+            response = await client.get(url, headers=headers, timeout=10.0)
+
+        if response.status_code == 200:
+            product: str = response.json().get("product", "")
+            if product:
+                logger.info(
+                    "Resolved product %s for entitlement %s via API",
+                    product,
+                    entitlement_id,
+                )
+                return product
+        elif response.status_code == 403:
+            logger.info(
+                "Not authorized to access entitlement %s — belongs to a different product",
+                entitlement_id,
+            )
+            return _NOT_AUTHORIZED
+        else:
+            logger.warning(
+                "Could not fetch entitlement %s for product filtering (HTTP %d)",
+                entitlement_id,
+                response.status_code,
+            )
+    except Exception as e:
+        logger.warning("Error fetching entitlement %s for product filtering: %s", entitlement_id, e)
+
+    return None
