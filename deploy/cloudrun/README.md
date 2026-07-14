@@ -511,6 +511,7 @@ The setup script enables required APIs, creates service accounts (runtime + Pub/
 | `HANDLER_SERVICE_NAME` | `marketplace-handler` | Marketplace handler Cloud Run service name |
 | `DB_INSTANCE_NAME` | `lightspeed-agent-db` | Cloud SQL instance name |
 | `VPC_CONNECTOR_NAME` | `lightspeed-redis-conn` | Serverless VPC Access connector for Redis |
+| `OTEL_SERVICE_NAME` | `${SERVICE_NAME}` | OTel service name for metrics and traces |
 | `PUBSUB_INVOKER_NAME` | `pubsub-invoker` | Pub/Sub invoker SA name |
 | `PUBSUB_TOPIC` | `marketplace-entitlements` | Pub/Sub topic for marketplace events. **Must** be set to the fully-qualified topic from Google Cloud Marketplace for production deployments. See [Set Environment Variables](#1-set-environment-variables). |
 | `PUBSUB_SUBSCRIPTION` | `${PUBSUB_TOPIC}-sub` | Pub/Sub subscription name. **Must** be set explicitly when `PUBSUB_TOPIC` is a fully-qualified path, since the default derivation produces an invalid name. |
@@ -1073,6 +1074,7 @@ All variables have defaults matching `deploy.sh`. Override any with `--substitut
 | `_PUBSUB_SUBSCRIPTION` | *(derived from topic)* | Pub/Sub subscription name (defaults to `{topic}-sub`) |
 | `_AGENT_SOURCE_IMAGE` | `quay.io/ecosystem-appeng/google-lightspeed-agent:latest` | Agent image to pull from Quay.io |
 | `_HANDLER_SOURCE_IMAGE` | `quay.io/ecosystem-appeng/google-marketplace-handler:latest` | Handler image to pull from Quay.io |
+| `_OTEL_SERVICE_NAME` | `lightspeed-agent` | OTel service name for metrics and traces |
 | `_SERVICE_CONTROL_SERVICE_NAME` | *(empty)* | Google Cloud Service Control service name for usage metering |
 | `_ENABLE_LB_AGENT` | `true` | Enable GCLB for the agent service |
 | `_ENABLE_LB_HANDLER` | `true` | Enable GCLB for the marketplace handler service |

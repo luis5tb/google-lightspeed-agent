@@ -177,7 +177,7 @@ spec:
             # Defaults to "lightspeed_agent" if not set.
             # Must be unique per agent in multi-agent deployments.
             - name: OTEL_SERVICE_NAME
-              value: "lightspeed_agent"
+              value: "${OTEL_SERVICE_NAME}"
             # The OTel Collector sidecar receives OTLP on localhost:4317
             # and exports metrics to Cloud Monitoring.
             - name: OTEL_METRICS_ENABLED

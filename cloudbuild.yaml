@@ -53,6 +53,7 @@ substitutions:
   _PUBSUB_SUBSCRIPTION: ""
   _AGENT_SOURCE_IMAGE: quay.io/ecosystem-appeng/google-lightspeed-agent:latest
   _HANDLER_SOURCE_IMAGE: quay.io/ecosystem-appeng/google-marketplace-handler:latest
+  _OTEL_SERVICE_NAME: lightspeed-agent
   _SERVICE_CONTROL_SERVICE_NAME: ""
   # GCLB and Cloud Armor configuration
   _ENABLE_LB_AGENT: "true"
@@ -281,6 +282,7 @@ steps:
             -e 's|$${SERVICE_ACCOUNT_NAME}|${_SERVICE_ACCOUNT_NAME}|g' \
             -e 's|$${DB_INSTANCE_NAME}|${_DB_INSTANCE_NAME}|g' \
             -e 's|$${VPC_CONNECTOR_NAME}|${_VPC_CONNECTOR_NAME}|g' \
+            -e 's|$${OTEL_SERVICE_NAME}|${_OTEL_SERVICE_NAME}|g' \
             deploy/cloudrun/service.yaml > /workspace/service.yaml
 
         gcloud run services replace /workspace/service.yaml \
@@ -620,6 +622,7 @@ steps:
       - |
         for f in deploy/cloudrun/dashboards/*.json; do
           [ -f "$$f" ] || continue
+          sed -i "s/\$${OTEL_SERVICE_NAME}/${_OTEL_SERVICE_NAME}/g" "$$f"
           name=$$(python3 -c "import json,sys;print(json.load(open(sys.argv[1]))['displayName'])" "$$f")
           echo "Processing dashboard: $$name"
           existing=$$(gcloud monitoring dashboards list \

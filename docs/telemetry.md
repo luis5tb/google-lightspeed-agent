@@ -17,7 +17,7 @@ When enabled, OpenTelemetry automatically instruments:
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `OTEL_ENABLED` | `false` | Enable OpenTelemetry tracing |
-| `OTEL_SERVICE_NAME` | `lightspeed_agent` | Service name for traces |
+| `OTEL_SERVICE_NAME` | `lightspeed-agent` | Service name for metrics and traces |
 | `OTEL_EXPORTER_TYPE` | `otlp` | Exporter type (see below) |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://localhost:4317` | OTLP gRPC endpoint |
 | `OTEL_EXPORTER_OTLP_HTTP_ENDPOINT` | `http://localhost:4318` | OTLP HTTP endpoint |
@@ -270,12 +270,10 @@ Metrics appear in Cloud Monitoring under the `prometheus_target` resource type w
 
 ### Multi-Agent Deployments
 
-When multiple agents share the same Cloud Monitoring project, metrics are distinguished by the OTel resource attribute `service.name`, which is set via the `OTEL_SERVICE_NAME` environment variable (default: `lightspeed_agent`). Each agent deployment should use a unique value:
+When multiple agents share the same Cloud Monitoring project, metrics are distinguished by the OTel resource attribute `service.name`, set via `OTEL_SERVICE_NAME` (default: `lightspeed-agent`). Each agent deployment should use a unique value:
 
-```yaml
-# In each agent's service.yaml
-- name: OTEL_SERVICE_NAME
-  value: "my_agent_name"
+```bash
+export OTEL_SERVICE_NAME=my-agent-name
 ```
 
 Cloud Monitoring applies `service.name` as a resource-level label on all metrics, so you can filter or group dashboards by agent without needing an explicit `agent_name` attribute on each metric.

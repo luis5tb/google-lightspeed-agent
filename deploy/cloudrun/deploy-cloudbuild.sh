@@ -255,6 +255,11 @@ fi
 if [[ -n "${VERTEXAI_LOCATION:-}" ]]; then
     SUBSTITUTIONS="${SUBSTITUTIONS},_VERTEXAI_LOCATION=${VERTEXAI_LOCATION}"
 fi
+if [[ -n "${OTEL_SERVICE_NAME:-}" ]]; then
+    SUBSTITUTIONS="${SUBSTITUTIONS},_OTEL_SERVICE_NAME=${OTEL_SERVICE_NAME}"
+elif [[ -n "${SERVICE_NAME:-}" ]]; then
+    SUBSTITUTIONS="${SUBSTITUTIONS},_OTEL_SERVICE_NAME=${SERVICE_NAME}"
+fi
 
 # =============================================================================
 # Step 4: Submit Cloud Build

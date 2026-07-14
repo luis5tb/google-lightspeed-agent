@@ -134,9 +134,9 @@
   },
   "dashboardFilters": [
     {
-      "labelKey": "service_name",
+      "labelKey": "job",
       "filterType": "METRIC_LABEL",
-      "stringValue": "",
+      "stringValue": "${OTEL_SERVICE_NAME}",
       "valueType": "STRING"
     }
   ],
